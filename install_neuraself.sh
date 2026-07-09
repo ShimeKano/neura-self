@@ -28,7 +28,7 @@ warn() {
     echo -e "${YELLOW}[!] $1${RESET}"
 }
 
-if [ -d "/data/data/com.termux/files/usr" ]; then
+if [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]; then
     PLATFORM="termux"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     PLATFORM="macos"
@@ -37,42 +37,71 @@ else
 fi
 
 case "$PLATFORM" in
-    termux)
-        if [ ! -d "$HOME/storage" ]; then
-            warn "Termux storage permission required"
-            termux-setup-storage || true
-        fi
 
-        if [ -d "$HOME/storage/downloads" ]; then
-            INSTALL_DIR="$HOME/storage/downloads/neuraself"
+termux)
+    info "Termux detected"
+
+    pkg update -y
+    pkg install python git termux-api -y
+
+    if [ ! -d "$HOME/storage" ]; then
+        termux-setup-storage || true
+        sleep 3
+    fi
+
+    if [ -d "$HOME/storage/downloads" ]; then
+        INSTALL_DIR="$HOME/storage/downloads/neuraself"
+    else
+        INSTALL_DIR="$HOME/neuraself"
+    fi
+;;
+
+macos)
+    if ! command -v git >/dev/null 2>&1; then
+        if command -v brew >/dev/null 2>&1; then
+            brew install git
         else
-            INSTALL_DIR="$HOME/neuraself"
+            fail "Git missing. Install Homebrew or Git manually"
         fi
-        ;;
+    fi
 
-    macos)
-        if command -v xdg-user-dir >/dev/null 2>&1; then
-            INSTALL_DIR="$(xdg-user-dir DOWNLOAD)/neuraself"
+    INSTALL_DIR="$HOME/Downloads/neuraself"
+;;
+
+linux)
+    if ! command -v git >/dev/null 2>&1; then
+        warn "Git missing"
+
+        if command -v apt >/dev/null 2>&1; then
+            sudo apt update
+            sudo apt install -y git
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y git
+        elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y git
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -Sy --noconfirm git
+        elif command -v apk >/dev/null 2>&1; then
+            sudo apk add git
         else
-            INSTALL_DIR="$HOME/Downloads/neuraself"
+            fail "Cannot install git automatically"
         fi
-        ;;
+    fi
 
-    linux)
-        if command -v xdg-user-dir >/dev/null 2>&1; then
-            BASE_DIR="$(xdg-user-dir DOWNLOAD)"
-        elif [ -d "$HOME/Downloads" ]; then
-            BASE_DIR="$HOME/Downloads"
-        else
-            BASE_DIR="$HOME"
-        fi
+    if command -v xdg-user-dir >/dev/null 2>&1; then
+        INSTALL_DIR="$(xdg-user-dir DOWNLOAD)/neuraself"
+    elif [ -d "$HOME/Downloads" ]; then
+        INSTALL_DIR="$HOME/Downloads/neuraself"
+    else
+        INSTALL_DIR="$HOME/neuraself"
+    fi
+;;
 
-        INSTALL_DIR="$BASE_DIR/neuraself"
-        ;;
 esac
 
+
 find_python() {
-    for cmd in python3.10 python3 python python3.11 python3.12; do
+    for cmd in python3 python python3.10 python3.11 python3.12; do
         if command -v "$cmd" >/dev/null 2>&1; then
             if "$cmd" - <<'PY'
 import sys
@@ -86,80 +115,94 @@ PY
     done
 }
 
+
 PY_CMD="$(find_python || true)"
 
+
 if [ -z "$PY_CMD" ]; then
-    fail "Python 3.10 or newer is required"
+
+    warn "Python not found"
+
+    if [ "$PLATFORM" = "linux" ]; then
+
+        if command -v apt >/dev/null 2>&1; then
+            sudo apt update
+            sudo apt install -y python3 python3-pip
+        else
+            fail "Install Python 3.10+ manually"
+        fi
+
+    elif [ "$PLATFORM" = "macos" ]; then
+
+        if command -v brew >/dev/null 2>&1; then
+            brew install python
+        else
+            fail "Install Python manually"
+        fi
+
+    fi
+
+    PY_CMD="$(find_python || true)"
 fi
+
+
+[ -z "$PY_CMD" ] && fail "Python 3.10 or newer required"
 
 ok "Python detected: $($PY_CMD --version)"
 
-install_git() {
-    case "$PLATFORM" in
-        termux)
-            pkg update -y && pkg install git -y
-            ;;
-        macos)
-            if command -v brew >/dev/null 2>&1; then
-                brew install git
-            else
-                fail "Git missing. Install Homebrew or Git manually"
-            fi
-            ;;
-        linux)
-            if command -v apt >/dev/null 2>&1; then
-                sudo apt update
-                sudo apt install -y git
-            elif command -v dnf >/dev/null 2>&1; then
-                sudo dnf install -y git
-            elif command -v yum >/dev/null 2>&1; then
-                sudo yum install -y git
-            elif command -v pacman >/dev/null 2>&1; then
-                sudo pacman -Sy --noconfirm git
-            elif command -v apk >/dev/null 2>&1; then
-                sudo apk add git
-            else
-                fail "No supported package manager found for Git installation"
-            fi
-            ;;
-    esac
-}
-
-if ! command -v git >/dev/null 2>&1; then
-    warn "Git not found"
-    install_git
-fi
-
-command -v git >/dev/null 2>&1 || fail "Git installation failed"
+command -v git >/dev/null 2>&1 || fail "Git unavailable"
 
 ok "Git detected"
 
+
 mkdir -p "$(dirname "$INSTALL_DIR")"
 
+
 if [ -d "$INSTALL_DIR" ]; then
+
     if [ -d "$INSTALL_DIR/.git" ]; then
+
         info "Updating existing installation"
+
+        git config --global --add safe.directory "$INSTALL_DIR" || true
+
         cd "$INSTALL_DIR"
+
         git pull || fail "Update failed"
+
     else
-        fail "Installation directory exists but is not a NeuraSelf repository"
+
+        fail "Folder exists but is not a Git repository"
+
     fi
+
 else
+
     info "Downloading NeuraSelf"
+
     git clone "$REPO_URL" "$INSTALL_DIR" || fail "Clone failed"
+
 fi
 
+
 cd "$INSTALL_DIR"
+
 
 if [ ! -f "neura_setup.py" ]; then
     fail "neura_setup.py not found"
 fi
 
+
 info "Starting setup"
+
 
 "$PY_CMD" neura_setup.py --quick || fail "Setup failed"
 
+
 echo
+
 ok "NeuraSelf installed successfully"
+
 echo -e "${CYAN}Location:${RESET} $INSTALL_DIR"
-echo -e "${CYAN}Run:${RESET} cd \"$INSTALL_DIR\" && $PY_CMD neura_setup.py"
+
+echo -e "${CYAN}Run:${RESET} cd \"$INSTALL_DIR\" && $PY_CMD neura.py"
