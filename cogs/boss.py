@@ -15,7 +15,7 @@ import asyncio
 import time
 import random
 
-from modules.v2_parser import parse_v2_message, get_boss_battle_id
+from component_v2_neura import parse_v2_message, get_boss_battle_id
 import json
 import os
 import re

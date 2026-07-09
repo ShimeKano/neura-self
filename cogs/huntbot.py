@@ -45,7 +45,7 @@ class HuntBot(commands.Cog):
         cfg = self.bot.config.get('commands', {}).get('huntbot', {})
         if cfg.get('enabled', False):
             self.bot.log("SYS", "HuntBot Module configured.")
-            await self.bot.neura_register_command("huntbot", "huntbot 16000", priority=4, delay=900, initial_offset=20)
+            await self.bot.neura_register_command("huntbot", "huntbot 16000", priority=self.bot.get_cmd_priority("huntbot", 4), delay=900, initial_offset=20)
             self.trigger_action()
 
     @commands.Cog.listener()

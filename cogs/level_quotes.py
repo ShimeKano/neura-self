@@ -64,7 +64,7 @@ class LevelQuotes(commands.Cog):
         cfg = self.bot.config.get('level_grind', {})
         if cfg.get('enabled', False):
             cooldown = cfg.get('cooldown', [60, 90])
-            await self.bot.neura_register_command("level_quotes", "owo level", priority=4, delay=random.uniform(cooldown[0], cooldown[1]), initial_offset=20)
+            await self.bot.neura_register_command("level_quotes", "owo level", priority=self.bot.get_cmd_priority("level_quotes", 4), delay=random.uniform(cooldown[0], cooldown[1]), initial_offset=20)
             self.trigger_action()
 
 async def setup(bot):

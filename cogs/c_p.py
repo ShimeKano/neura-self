@@ -119,7 +119,7 @@ class NeuraCursePray(commands.Cog):
             if rb_cfg.get('enabled', False) and rb_cfg.get('pray_and_curse', False):
                 delay += 5
                 
-            await self.bot.neura_register_command("cursepray", "curse", priority=3, delay=delay, initial_offset=20)
+            await self.bot.neura_register_command("cursepray", "curse", priority=self.bot.get_cmd_priority("cursepray", 3), delay=delay, initial_offset=20)
             self.trigger_action()
 
 async def setup(bot):

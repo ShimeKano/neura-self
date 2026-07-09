@@ -57,7 +57,7 @@ class ChannelSwitch(commands.Cog):
             else:
                 interval = float(interval_config)
 
-            await self.bot.neura_register_command("channelswitch", "", priority=5, delay=interval, initial_offset=10)
+            await self.bot.neura_register_command("channelswitch", "", priority=self.bot.get_cmd_priority("channelswitch", 5), delay=interval, initial_offset=10)
 
 async def setup(bot):
     cog = ChannelSwitch(bot)

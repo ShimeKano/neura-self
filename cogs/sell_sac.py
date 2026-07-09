@@ -47,7 +47,6 @@ class SellSac(commands.Cog):
                 if autosell_enabled:
                     sell_interval = sell_cfg.get('interval_min', 20) * 60
                     if now - self.last_sell_time > sell_interval:
-                        # User requested: sell do not have shortform ok
                         await self.bot.neura_enqueue(f"sell {sell_cfg.get('type', 'all')}", priority=4)
                         self.last_sell_time = now
                         self.bot.log("SYS", "Periodic AutoSell triggered.")
@@ -81,7 +80,6 @@ class SellSac(commands.Cog):
             sell_cfg = cfg.get('sell', {})
             if sell_cfg.get('enabled', False):
                 await asyncio.sleep(2)
-                # User requested: sell do not have shortform ok
                 await self.bot.neura_enqueue(f"sell {sell_cfg.get('type', 'all')}", priority=2)
                 self.last_sell_time = time.time()
                 self.bot.log("SYS", "Low funds detected. Triggered AutoSell.")

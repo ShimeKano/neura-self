@@ -10,39 +10,36 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
-
 import aiohttp
-import asyncio
 import json
 import base64
 import uuid
 import time
 import re
+import random
 from datetime import datetime
 
-# temporary approach for components v2
-
 class InteractionManager:
-    '''
-    it handle interaction means button click ,, we are sending direct requests to discord api for it
-    
-    '''
+
     def __init__(self, bot):
         self.bot = bot
-        self._build_number = 515425
+        self._build_number = 310000 
         self._last_fetch = 0
         self._installation_id = str(uuid.uuid4()).replace('-', '')[:32]
+        
+        self.chrome_version = f"{random.randint(124, 127)}.0.0.0"
+        self.user_agent = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{self.chrome_version} Safari/537.36"
 
     async def _fetch_build_number(self):
         now = time.time()
-        if now - self._last_fetch < 43200:
+        if now - self._last_fetch < 43200 and self._build_number > 310000:
             return self._build_number
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get("https://discord.com/login", timeout=10) as resp:
                     text = await resp.text()
-                
+
                 match = re.search(r"assets/(sentry\.\w+)\.js", text)
                 if not match:
                     match = re.search(r"assets/(\d+\.\w+)\.js", text)
@@ -56,19 +53,19 @@ class InteractionManager:
                     if b_match:
                         self._build_number = int(b_match.group(1))
                         self._last_fetch = now
-        except:
+        except Exception as e:
             pass
         return self._build_number
 
     def _generate_super_properties(self, build_number):
-        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+        major_ver = self.chrome_version.split('.')[0]
         props = {
             "os": "Windows",
             "browser": "Chrome",
             "device": "",
             "system_locale": "en-US",
-            "browser_user_agent": ua,
-            "browser_version": "146.0.0.0",
+            "browser_user_agent": self.user_agent,
+            "browser_version": self.chrome_version,
             "os_version": "10",
             "referrer": "",
             "referring_domain": "",
@@ -96,17 +93,17 @@ class InteractionManager:
         elif channel_id:
             referer = f"https://discord.com/channels/@me/{channel_id}"
 
-        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+        major_ver = self.chrome_version.split('.')[0]
         return {
             "Authorization": self.bot.token,
             "Content-Type": "application/json",
             "X-Super-Properties": sp,
-            "X-Discord-Locale": "en-GB",
+            "X-Discord-Locale": "en-US",
             "X-Discord-Timezone": tz,
-            "User-Agent": ua,
+            "User-Agent": self.user_agent,
             "Origin": "https://discord.com",
             "Referer": referer,
-            "Sec-CH-UA": '"Chromium";v="146", "Google Chrome";v="146", "Not-A.Brand";v="99"',
+            "Sec-CH-UA": f'"Not/A)Brand";v="8", "Chromium";v="{major_ver}", "Google Chrome";v="{major_ver}"',
             "Sec-CH-UA-Mobile": "?0",
             "Sec-CH-UA-Platform": '"Windows"',
             "Sec-CH-UA-Platform-Version": '"15.0.0"',
@@ -117,7 +114,6 @@ class InteractionManager:
             "X-Discord-Features": "quests",
             "X-Installation-Id": self._installation_id
         }
-
 
     async def click_button(self, custom_id, message, guild_id=None):
         if not custom_id or not message:
@@ -151,7 +147,6 @@ class InteractionManager:
         }
 
         headers = await self._get_headers(channel_id=channel_id, guild_id=guild_id)
-
         
         try:
             async with aiohttp.ClientSession() as session:

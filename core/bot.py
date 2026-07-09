@@ -22,12 +22,13 @@ import requests
 from modules.neura_human import NeuraHuman
 from modules.neura_logs import neura_logger
 from modules.identity import IdentityManager
-from modules.interactions import setup_interactions
+from component_v2_neura import setup_interactions
 from modules.captcha_solver import setup_solver
 from modules.web_solver import setup_web_solver
 import core.state as state
 import aiohttp
 import unicodedata
+import copy
 import logging
 from rich.console import Console
 from rich.align import Align
@@ -35,7 +36,7 @@ from rich.align import Align
 _log = logging.getLogger(__name__)
 
 class NeuraBot(commands.Bot):
-    def __init__(self, token=None, channels=None):
+    def __init__(self, token=None, channels=None, proxy_url=None, proxy_auth=None, proxy_label="direct"):
         self.session = None
         self.base_dir = state.BASE_DIR
         self.config_file = os.path.join(state.CONFIG_DIR, 'settings.json')
@@ -47,6 +48,9 @@ class NeuraBot(commands.Bot):
         self.token = token
         self.channels = channels or []
         self.channels = channels or []
+        self.proxy_url = proxy_url
+        self.proxy_auth = proxy_auth
+        self.proxy_label = proxy_label or "direct"
         self._load_config()
         
         if not self.token or not self.channels:
@@ -63,7 +67,13 @@ class NeuraBot(commands.Bot):
         self.owo_bot_id = str(core_cfg.get('monitor_bot_id', '408785106942164992'))
         self.owo_user = None
         
-        super().__init__(command_prefix=self.prefix, self_bot=True, enable_debug_events=True)
+        super().__init__(
+            command_prefix=self.prefix,
+            self_bot=True,
+            enable_debug_events=True,
+            proxy=proxy_url,
+            proxy_auth=proxy_auth,
+        )
         
         self.username = "Bot"
         self.display_name = "Bot"
@@ -93,7 +103,15 @@ class NeuraBot(commands.Bot):
         _log.info(f"Initialized bot on platform: {platform}")
         
     async def setup_hook(self):
-        self.session = aiohttp.ClientSession()
+        if self.proxy_url and self.proxy_url.startswith(("socks4://", "socks5://")):
+            try:
+                from aiohttp_socks import ProxyConnector
+                connector = ProxyConnector.from_url(self.proxy_url, rdns=True)
+                self.session = aiohttp.ClientSession(connector=connector)
+            except Exception:
+                self.session = aiohttp.ClientSession()
+        else:
+            self.session = aiohttp.ClientSession()
         self.interactions = setup_interactions(self)
         self.captcha_solver = setup_solver(self)
         self.web_solver = setup_web_solver(self)
@@ -163,6 +181,10 @@ class NeuraBot(commands.Bot):
         
         self._load_config()
 
+        from modules.web_solver import setup_web_solver
+        self.web_solver = setup_web_solver(self)
+        self.log("SYS", "WebSolver reinitialized with account-specific settings.")
+
         if not st.get('uptime_start'):
             st['uptime_start'] = time.time()
         
@@ -197,7 +219,7 @@ class NeuraBot(commands.Bot):
         if self.session is None:
             self.session = aiohttp.ClientSession()
     
-    async def _send_safe(self, content, skip_typing=False):
+    async def _send_safe(self, content, skip_typing=False, target_channel_id=None):
         if not content or not self.is_ready:
             return False
             
@@ -212,12 +234,13 @@ class NeuraBot(commands.Bot):
             self.log("INFO", f"Safety Pause: Resuming in {round(wait, 1)}s (Waiting for OwO Slow-Down)")
             await asyncio.sleep(wait + 0.1)
             
-        channel = self.get_channel(self.channel_id)
+        c_id = target_channel_id or self.channel_id
+        channel = self.get_channel(c_id)
         if not channel:
             try:
-                channel = await self.fetch_channel(self.channel_id)
+                channel = await self.fetch_channel(c_id)
             except Exception as e:
-                self.log("ERROR", f"Failed to fetch channel {self.channel_id}: {e}")
+                self.log("ERROR", f"Failed to fetch channel {c_id}: {e}")
                 return False
         
         if not channel: return False
@@ -257,7 +280,7 @@ class NeuraBot(commands.Bot):
                         cmd = " ".join(parts)
 
         known = ['hunt', 'battle', 'curse', 'huntbot', 'daily', 'cookie',
-                'quest', 'checklist', 'cf', 'slots', 'autohunt', 'upgrade',
+                'quest', 'checklist', 'cf', 'slots', 'bj', 'blackjack', 'autohunt', 'upgrade',
                 'sacrifice', 'team', 'zoo', 'use', 'inv', 'sell', 'crate',
                 'lootbox', 'run', 'pup', 'piku','pray']
         
@@ -276,7 +299,14 @@ class NeuraBot(commands.Bot):
         if self.paused and "autohunt" not in content.lower() and "check" not in content.lower():
             return False
         
-        wait_limit = 1.2 if priority else self.min_command_interval
+        # delay skip
+        stealth_cfg = self.config.get('stealth', {})
+        typing_enabled = stealth_cfg.get('typing_enabled', None)
+        if typing_enabled is None:
+            typing_cfg = stealth_cfg.get('typing', {})
+            typing_enabled = typing_cfg.get('enabled', False) if isinstance(typing_cfg, dict) else False
+        
+        wait_limit = 0.0 if not typing_enabled else (1.2 if priority else self.min_command_interval)
         
         async with self.command_lock:
             now = time.time()
@@ -319,27 +349,129 @@ class NeuraBot(commands.Bot):
                 except Exception as e:
                     self.log("ERROR", f"Failed to load {filename}: {e}")
     
+    def _collect_changed_paths(self, old, new, prefix=""):
+        """Return dotted paths that differ between two config dicts."""
+        changed = set()
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            p = prefix.rstrip(".")
+            if p and old != new:
+                changed.add(p)
+            return changed
+        for key in set(old.keys()) | set(new.keys()):
+            path = f"{prefix}{key}" if prefix else key
+            ov, nv = old.get(key), new.get(key)
+            if isinstance(ov, dict) and isinstance(nv, dict):
+                sub = self._collect_changed_paths(ov, nv, f"{path}.")
+                if sub:
+                    changed.add(path)
+                    changed.update(sub)
+            elif ov != nv:
+                changed.add(path)
+        return changed
+
+    def _cogs_for_config_changes(self, changed_paths):
+        """Map changed config paths to cog class names that need register_actions."""
+        cog_names = set()
+        cmd_to_cog = {
+            "owo": "Grinding", "hunt": "Grinding", "battle": "Grinding",
+            "coinflip": "Gambling", "slots": "Gambling",
+            "curse": "NeuraCursePray", "pray": "NeuraCursePray",
+            "shop": "Shop", "huntbot": "HuntBot", "daily": "Daily",
+            "quest": "Quest", "rpp": "RPP", "cookie": "Cookie",
+            "level_grind": "LevelQuotes",
+        }
+        top_to_cog = {
+            "reactionBot": "ReactionBot",
+            "security": "Security",
+            "boss": "Boss",
+            "utilities": "ChannelSwitch",
+            "level_grind": "LevelQuotes",
+        }
+        for path in changed_paths:
+            if path == "commands" or path.startswith("commands."):
+                parts = path.split(".")
+                if len(parts) >= 2:
+                    cog_names.add(cmd_to_cog.get(parts[1], "Grinding"))
+                else:
+                    cog_names.update(cmd_to_cog.values())
+            elif path.split(".")[0] in top_to_cog:
+                cog_names.add(top_to_cog[path.split(".")[0]])
+        return cog_names
+
+    def _prune_disabled_scheduler_cmds(self):
+        """Remove scheduler entries for commands that are now disabled."""
+        cmds = self.config.get("commands", {})
+
+        def enabled(name):
+            return bool(cmds.get(name, {}).get("enabled", False))
+
+        rules = [
+            ("owo", enabled("owo")),
+            ("hunt", enabled("hunt")),
+            ("battle", enabled("battle")),
+            ("coinflip", enabled("coinflip")),
+            ("slots", enabled("slots")),
+            ("cursepray", enabled("curse") or enabled("pray")),
+            ("daily", enabled("daily")),
+            ("quest", enabled("quest")),
+            ("rpp", enabled("rpp")),
+            ("cookie", enabled("cookie")),
+            ("huntbot", enabled("huntbot")),
+            ("shop_buy", enabled("shop")),
+            ("shop_cash_sync", enabled("shop")),
+            ("level_quotes", self.config.get("level_grind", {}).get("enabled", False)),
+            ("channelswitch", self.config.get("utilities", {}).get("autochannel", {}).get("enabled", False)),
+        ]
+        for cmd_id, is_on in rules:
+            if not is_on and cmd_id in self.cmd_states:
+                del self.cmd_states[cmd_id]
+
     async def sync_settings(self, new_config):
-        """Perform a deep merge of new_config and rebuild the command scheduler."""
+        """Merge settings and only refresh scheduler modules that actually changed."""
+        old_config = copy.deepcopy(self.config)
         self._load_config()
         self._deep_merge(self.config, new_config)
-        
-        core_cfg = self.config.get('core', {})
-        self.prefix = core_cfg.get('prefix', 'owo ')
-        if hasattr(self, '_connection'):
+
+        core_cfg = self.config.get("core", {})
+        self.prefix = core_cfg.get("prefix", "owo ")
+        if hasattr(self, "_connection"):
             self.command_prefix = self.prefix
 
-        self.cmd_states.clear()
-        
-        for cog in self.cogs.values():
-            if hasattr(cog, 'register_actions'):
-                try:
-                    await cog.register_actions()
-                except Exception as e:
-                    self.log("ERROR", f"Failed to re-register {cog.__class__.__name__}: {e}")
-        
-        active_cmds = [f"{k}({v['delay']}s)" for k, v in self.cmd_states.items()]
-        self.log("SYS", f"Settings synced. Active Scheduler: {', '.join(active_cmds) if active_cmds else 'None'}")
+        changed = self._collect_changed_paths(old_config, self.config)
+        if not changed:
+            self.log("SYS", "Settings saved (no changes detected).")
+            return
+
+        cogs_to_refresh = self._cogs_for_config_changes(changed)
+        scheduler_paths = {
+            p for p in changed
+            if p == "commands" or p.startswith("commands.")
+            or p.startswith("utilities.") or p in ("reactionBot", "level_grind")
+            or p.startswith("reactionBot.")
+        }
+
+        if scheduler_paths:
+            self._prune_disabled_scheduler_cmds()
+            for cog in self.cogs.values():
+                name = type(cog).__name__
+                if name in cogs_to_refresh and hasattr(cog, "register_actions"):
+                    try:
+                        await cog.register_actions()
+                    except Exception as e:
+                        self.log("ERROR", f"Failed to refresh {name}: {e}")
+            self.log("SYS", f"Settings updated ({len(changed)} change(s)). Scheduler modules refreshed: {', '.join(sorted(cogs_to_refresh)) or 'none'}")
+        else:
+            for cog in self.cogs.values():
+                name = type(cog).__name__
+                if name in cogs_to_refresh and hasattr(cog, "register_actions"):
+                    try:
+                        await cog.register_actions()
+                    except Exception as e:
+                        self.log("ERROR", f"Failed to refresh {name}: {e}")
+            self.log("SYS", f"Settings updated ({len(changed)} change(s), no scheduler restart).")
+
+        active_cmds = [f"{k}({round(v['delay'], 1)}s)" for k, v in self.cmd_states.items()]
+        self.log("DEBUG", f"Active Scheduler: {', '.join(active_cmds) if active_cmds else 'None'}")
 
     def _deep_merge(self, base, override):
         for key, value in override.items():
@@ -434,7 +566,7 @@ class NeuraBot(commands.Bot):
 
 
     def check_version(self):
-        CURRENT_VERSION = "2.3.2" 
+        CURRENT_VERSION = "2.4.0" 
         VERSION_URL = "https://raw.githubusercontent.com/routo-loop/neura_status_api/main/version.json"
         
         self.log("SYS", "Checking for updates...")
@@ -442,7 +574,7 @@ class NeuraBot(commands.Bot):
             r = requests.get(VERSION_URL, timeout=5)
             if r.status_code == 200:
                 data = r.json()
-                latest_version = data.get("version", "2.3.0")
+                latest_version = data.get("version", "2.4.0")
                 changelog = data.get("changelog", "No changes listed.")
                 
                 if latest_version != CURRENT_VERSION:
@@ -466,7 +598,8 @@ class NeuraBot(commands.Bot):
     
     async def run_bot(self):
         self.check_version()
-        self.log("SYS", "Starting bot...")
+        route = f"via {self.proxy_label}" if self.proxy_label != "direct" else "direct connection"
+        self.log("SYS", f"Starting bot ({route})...")
         await self.start(self.token)
 
     def set_cooldown(self, cmd, seconds):
@@ -474,6 +607,56 @@ class NeuraBot(commands.Bot):
 
     def get_cooldown(self, cmd):
         return max(0, self.cmd_cooldowns.get(cmd.lower(), 0) - time.time())
+
+    def get_cmd_priority(self, cmd_id, default=3):
+        """Load priority from cmd_priorities.json, fallback to default."""
+        try:
+            prio_file = os.path.join(self.base_dir, 'config', 'cmd_priorities.json')
+            if os.path.exists(prio_file):
+                with open(prio_file, 'r') as f:
+                    priorities = json.load(f)
+                return priorities.get(cmd_id, default)
+        except Exception:
+            pass
+        return default
+
+    def get_command_id_from_content(self, content):
+        if not content:
+            return None
+        cmd_clean = content.lower().strip()
+        prefix = self.prefix.lower().strip()
+        if cmd_clean.startswith(prefix):
+            cmd_clean = cmd_clean[len(prefix):].strip()
+        elif cmd_clean.startswith("owo "):
+            cmd_clean = cmd_clean[4:].strip()
+        elif cmd_clean.startswith("uwu "):
+            cmd_clean = cmd_clean[4:].strip()
+            
+        parts = cmd_clean.split()
+        if not parts:
+            return "owo"
+            
+        base = parts[0]
+        alias_map = {
+            "h": "hunt",
+            "hunt": "hunt",
+            "b": "battle",
+            "battle": "battle",
+            "fight": "battle",
+            "pray": "cursepray",
+            "curse": "cursepray",
+            "cookie": "cookie",
+            "rep": "cookie",
+            "cf": "coinflip",
+            "coinflip": "coinflip",
+            "slots": "slots",
+            "slot": "slots",
+            "s": "slots",
+            "daily": "daily",
+            "rpp": "rpp",
+            "owo": "owo"
+        }
+        return alias_map.get(base, base)
 
 
     def get_full_content(self, message):
@@ -495,8 +678,8 @@ class NeuraBot(commands.Bot):
     def is_message_for_me(self, message, role="any", keyword=None):
         return self.identity.is_message_for_me(message, role, keyword)
 
-    async def neura_enqueue(self, content, priority=3, skip_typing=None, _cmd_id=None):
-        options = {"skip_typing": skip_typing, "_cmd_id": _cmd_id}
+    async def neura_enqueue(self, content, priority=3, skip_typing=None, _cmd_id=None, target_channel_id=None):
+        options = {"skip_typing": skip_typing, "_cmd_id": _cmd_id, "target_channel_id": target_channel_id}
         item = (priority, time.time(), content, options)
         await self.neura_queue.put(item)
 
@@ -507,6 +690,7 @@ class NeuraBot(commands.Bot):
             try:
                 priority, ts, content, options = await self.neura_queue.get()
                 cmd_id = options.get("_cmd_id")
+                target_channel_id = options.get("target_channel_id")
 
                 ran_successfully = False
                 
@@ -522,7 +706,17 @@ class NeuraBot(commands.Bot):
                         ran_successfully = True
                         continue
                     
-                    wait_limit = 1.2 if priority <= 1 else self.min_command_interval
+                    # skip queue delay if stealth is disabled
+                    stealth_cfg = self.config.get('stealth', {})
+                    typing_enabled = stealth_cfg.get('typing_enabled', None)
+                    if typing_enabled is None:
+                        typing_cfg = stealth_cfg.get('typing', {})
+                        typing_enabled = typing_cfg.get('enabled', False) if isinstance(typing_cfg, dict) else False
+                    
+                    if not typing_enabled:
+                        wait_limit = 0.0
+                    else:
+                        wait_limit = 1.2 if priority <= 1 else self.min_command_interval
                     
                     now = time.time()
                     elapsed = now - self.last_sent_time
@@ -551,29 +745,41 @@ class NeuraBot(commands.Bot):
                     if skip_typing is None:
                         skip_typing = priority <= 1 or content.lower().strip() == "owo"
 
-                    if cmd_id and cmd_id in self.cmd_states:
-                        last_ran = self.cmd_states[cmd_id]['last_ran']
-                        if time.time() - last_ran < 2.0:
-                            continue
-                        
-                        self.cmd_states[cmd_id]['last_ran'] = time.time()
+                    if not cmd_id and content:
+                        cmd_id = self.get_command_id_from_content(content)
 
-                    await self._send_safe(content, skip_typing=skip_typing)
+                    if cmd_id and cmd_id in self.cmd_states:
+                        state_info = self.cmd_states[cmd_id]
+                        elapsed = time.time() - state_info['last_ran']
+                        if elapsed < state_info['delay']:
+                            remaining = state_info['delay'] - elapsed
+                            if priority >= 4 and remaining > 60:
+                                self.log("WARN", f"Quest Engine: Skipping '{content}' because '{cmd_id}' has a long remaining cooldown of {round(remaining, 1)}s")
+                                continue
+                            elif remaining <= 60:
+                                self.log("INFO", f"Quest Engine: Deferring '{content}' for {round(remaining, 1)}s (Waiting for '{cmd_id}' cooldown)")
+                                await asyncio.sleep(remaining + 0.5)
+
+                    await self._send_safe(content, skip_typing=skip_typing, target_channel_id=target_channel_id)
                     self.last_sent_time = time.time()
                     ran_successfully = True
                     
                     if cmd_id and cmd_id in self.cmd_states:
-                        if cmd_id in ["rpp", "quest", "level_quotes", "huntbot", "daily", "cookie", "coinflip", "slots"]:
+                        self.cmd_states[cmd_id]['last_ran'] = time.time()
+                    
+                    if cmd_id and cmd_id in self.cmd_states:
+                        if cmd_id in ["rpp", "quest", "level_quotes", "huntbot", "daily", "cookie", "coinflip", "slots", "blackjack"]:
                             class_map = {
                                 "rpp": "RPP", "quest": "Quest", "level_quotes": "LevelQuotes", 
                                 "huntbot": "HuntBot", "daily": "Daily", "cookie": "Cookie",
-                                "coinflip": "Gambling", "slots": "Gambling"
+                                "coinflip": "Gambling", "slots": "Gambling", "blackjack": "Gambling"
                             }
                             
                             cog = self.get_cog(class_map[cmd_id])
                             if cog:
                                 if cmd_id == "coinflip": getattr(cog, "trigger_coinflip")()
                                 elif cmd_id == "slots": getattr(cog, "trigger_slots")()
+                                elif cmd_id == "blackjack": getattr(cog, "trigger_blackjack")()
                                 else: getattr(cog, "trigger_action")()
                 
                 finally:
@@ -586,12 +792,27 @@ class NeuraBot(commands.Bot):
                 await asyncio.sleep(1)
 
     async def neura_register_command(self, cmd_id, content, priority, delay, initial_offset=0):
+        existing = self.cmd_states.get(cmd_id, {})
+        now = time.time()
+
+        if existing and "last_ran" in existing:
+            last_ran = existing["last_ran"]
+            in_queue = existing.get("in_queue", False)
+            old_delay = existing.get("delay", delay)
+            if old_delay > 0 and abs(delay - old_delay) > 0.01:
+                elapsed = max(0, now - last_ran)
+                remaining_ratio = min(1.0, max(0, 1.0 - (elapsed / old_delay)))
+                last_ran = now - (delay * (1.0 - remaining_ratio))
+        else:
+            last_ran = now - delay + initial_offset
+            in_queue = False
+
         self.cmd_states[cmd_id] = {
             "content": content,
             "priority": priority,
             "delay": delay,
-            "last_ran": time.time() - delay + initial_offset,
-            "in_queue": False
+            "last_ran": last_ran,
+            "in_queue": in_queue
         }
 
     async def neura_scheduler_worker(self):

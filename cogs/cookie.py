@@ -141,7 +141,7 @@ class Cookie(commands.Cog):
                     self.bot.log("INFO", f"Cookie on cooldown: {h}h {m}m remaining.")
                 
                 cmd = f"cookie {user_to_cookie}"
-                await self.bot.neura_register_command("cookie", cmd, priority=4, delay=max(10, delay), initial_offset=0)
+                await self.bot.neura_register_command("cookie", cmd, priority=self.bot.get_cmd_priority("cookie", 4), delay=max(10, delay), initial_offset=0)
 
 async def setup(bot):
     cog = Cookie(bot)

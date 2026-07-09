@@ -9,6 +9,7 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
 import sys
 import asyncio
 import time
@@ -17,6 +18,7 @@ import os
 import threading
 import unicodedata
 import requests
+import random
 import json
 import discord
 from discord.ext import commands
@@ -124,7 +126,7 @@ class Security(commands.Cog):
                 "color": 0xFF3B3B,
                 "author": {
                     "name": f"NeuraSelf Security - {self.bot.username}",
-                    "icon_url": "https://cdn.discordapp.com/attachments/1450161614375620802/1456632606002118657/neuralogo.png"
+                    "icon_url": "https://media.discordapp.net/attachments/1357951011456684252/1524069544401047773/neuralogo.png?ex=6a4e67df&is=6a4d165f&hm=21deba052462f712808661dc8aac4204eecb781cfcaa1ff189861b79c7db0c92"
                 },
                 "footer": {"text": f"NeuraSelf • Account: {self.bot.username}"},
                 "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
@@ -169,24 +171,27 @@ class Security(commands.Cog):
                     return url
         return None
 
-
     @commands.Cog.listener()
     async def on_message(self, message):
         if not self.enabled: return
         if isinstance(message.channel, discord.DMChannel) and message.author.id == int(self.monitor_id):
             if (discord.utils.utcnow() - message.created_at).total_seconds() > 30: return
             if "i have verified that you are human" in message.content.lower():
+                self.bot.web_solver.mark_verification_done(str(self.bot.user.id))
+                try:
+                    from dashboard.app import clear_captcha_challenge
+                    clear_captcha_challenge(str(self.bot.user.id))
+                except Exception as e:
+                    self.bot.log("ERROR", f"Failed to clear captcha challenge: {e}")
                 self.bot.paused = False
                 self.bot.throttle_until = 0.0
                 self.bot.last_sent_time = 0
                 self.bot.warmup_until = 0
-                
                 grinding_cog = self.bot.get_cog('Grinding')
                 if grinding_cog:
                     grinding_cog.cooldowns['hunt'] = 0
                     grinding_cog.cooldowns['battle'] = 0
                     grinding_cog.cooldowns['owo'] = 0
-                
                 self.bot.log("SUCCESS", "Verified detected in DM. Captcha solved successfully. Resuming...")
                 self.bot.log("INFO", "All cooldowns reset. Bot will resume in 2 seconds...")
                 await asyncio.sleep(2)
@@ -194,15 +199,11 @@ class Security(commands.Cog):
 
             if "letterword" in message.content.lower() and message.attachments:
                 self.bot.log("SECURITY", "Detection AI: Letterword captcha identified in DMs.")
- 
                 count_match = re.search(r'(\d+)\s*letterword', message.content.lower())
                 letter_count = int(count_match.group(1)) if count_match else 5
-                
                 image_url = message.attachments[0].url
-
                 self.bot.log("SYS", f"Attempting to solve DM Captcha ({letter_count} letters)...")
                 answer = await self.bot.captcha_solver.solve_image(image_url, letter_count)
-                
                 if answer:
                     self.bot.log("SUCCESS", f"AI Solver Answer: {answer}. Sending to OwO...")
                     await asyncio.sleep(random.uniform(2.0, 4.0))
@@ -230,8 +231,13 @@ class Security(commands.Cog):
                 sol_cfg = sec_cfg.get("captcha_solver", {})
                 
                 autosolved = False
-                if sol_cfg.get("enabled", True) and sol_cfg.get("api_key"):
-                    self.bot.log("SYS", "Attempting YesCaptcha auto-solve for DM...")
+                has_key = bool(
+                    sol_cfg.get("yescaptcha_api_key") or 
+                    sol_cfg.get("nopecha_api_key") or 
+                    sol_cfg.get("anticaptcha_api_key")
+                )
+                if sol_cfg.get("enabled", True) and has_key:
+                    self.bot.log("SYS", f"Attempting {sol_cfg.get('service', 'yescaptcha').capitalize()} auto-solve for DM...")
                     autosolved = await self.bot.web_solver.auto_verify()
                     if autosolved:
                         self.bot.log("SUCCESS", "YesCaptcha solved successfully (DM)!")
@@ -242,11 +248,16 @@ class Security(commands.Cog):
 
                 if not autosolved:
                     self._send_webhook("DM CAPTCHA", f"Solve link in DM: {captcha_url}")
-                    if sys.platform == "win32" and sec_cfg.get("open_captcha_url_on_pc", False):
-                        self.bot.log("SYS", "Opening Captcha in Browser with Auto-Login...")
-                        asyncio.create_task(self.bot.web_solver.open_in_browser(captcha_url))
-
+                    if sys.platform == "win32":
+                        auto_open = sec_cfg.get("open_captcha_url_on_pc", False)
+                    else:
+                        auto_open = sec_cfg.get("open_captcha_url_on_mobile", False)
+                    if auto_open:
+                        self.bot.log("SYS", "Queuing manual solve for DM captcha...")
+                        self.bot.web_solver.enqueue_manual_solve(str(self.bot.user.id), captcha_url)
+                        self._show_desktop_notification(f"Manual solve queued for {self.bot.username}")
                 return
+
         if str(message.author.id) != self.monitor_id: return
         
         if self.bot.owo_user is None:
@@ -269,6 +280,7 @@ class Security(commands.Cog):
         text_to_check = f"{content} {embed_text}"
         is_for_me = self.bot.is_message_for_me(message)
         if not is_for_me: return
+
         if self._contains_keyword(text_to_check, self.ban_keywords):
             self.bot.paused = True
             self.bot.log("ALARM", "BAN DETECTED!")
@@ -276,6 +288,7 @@ class Security(commands.Cog):
             self._show_desktop_notification("Ban detected!")
             self._send_webhook("BAN DETECTED", f"Message:\n{content}")
             return
+
         warning_match = self.warning_pattern.search(text_to_check)
         if warning_match:
             current_warning = int(warning_match.group(1))
@@ -290,6 +303,7 @@ class Security(commands.Cog):
                 self._show_desktop_notification(f"Captcha warning {current_warning}/{max_warnings} detected!")
                 self._send_webhook("CAPTCHA WARNING", f"Warning {current_warning}/{max_warnings}\nMessage:\n{content}")
                 return
+
         has_image = len(message.attachments) > 0
         image_captcha_hit = self._contains_keyword(text_to_check, self.image_captcha_keywords)
         if has_image and image_captcha_hit:
@@ -302,9 +316,9 @@ class Security(commands.Cog):
             img_urls = "\n".join([att.url for att in message.attachments])
             self._send_webhook("IMAGE CAPTCHA DETECTED", f"Message:\n{content}\n\nImages:\n{img_urls}")
             return
+
         captcha_keywords_hit = self._contains_keyword(text_to_check, self.captcha_keywords)
         captcha_url = self._get_captcha_url(message)
-        
         if not captcha_url:
             url_match = re.search(r'https?://owobot\.com/captcha/\S+', text_to_check)
             if url_match:
@@ -322,8 +336,13 @@ class Security(commands.Cog):
             sol_cfg = sec_cfg.get("captcha_solver", {})
             
             autosolved = False
-            if sol_cfg.get("enabled", True) and sol_cfg.get("api_key"):
-                self.bot.log("SYS", "Attempting YesCaptcha auto-solve...")
+            has_key = bool(
+                sol_cfg.get("yescaptcha_api_key") or 
+                sol_cfg.get("nopecha_api_key") or 
+                sol_cfg.get("anticaptcha_api_key")
+            )
+            if sol_cfg.get("enabled", True) and has_key:
+                self.bot.log("SYS", f"Attempting {sol_cfg.get('service', 'yescaptcha').capitalize()} auto-solve...")
                 autosolved = await self.bot.web_solver.auto_verify()
                 if autosolved:
                     self.bot.log("SUCCESS", "YesCaptcha solved successfully!")
@@ -335,10 +354,27 @@ class Security(commands.Cog):
             if not autosolved:
                 solve_link = captcha_url or "https://owobot.com/captcha"
                 self._send_webhook("CAPTCHA DETECTED", f"Solve: {solve_link}")
-                if sys.platform == "win32" and sec_cfg.get("open_captcha_url_on_pc", False):
-                    self.bot.log("SYS", "Opening Captcha in Browser with Auto-Login...")
-                    asyncio.create_task(self.bot.web_solver.open_in_browser(captcha_url))
+                if sys.platform == "win32":
+                    auto_open = sec_cfg.get("open_captcha_url_on_pc", False)
+                else:
+                    auto_open = sec_cfg.get("open_captcha_url_on_mobile", False)
+                if auto_open:
+                    self.bot.log("SYS", "Queuing manual solve for captcha...")
+                    self.bot.web_solver.enqueue_manual_solve(str(self.bot.user.id), captcha_url)
+                    self._show_desktop_notification(f"Manual solve queued for {self.bot.username}")
 
+                try:
+                    from dashboard.app import register_captcha_challenge
+                    register_captcha_challenge(
+                        str(self.bot.user.id),
+                        {
+                            "account_name": self.bot.username,
+                            "captcha_url": captcha_url or "https://owobot.com/captcha"
+                        }
+                    )
+                    self.bot.log("SYS", f"Captcha registered for dashboard display (account_id={self.bot.user.id})")
+                except Exception as e:
+                    self.bot.log("ERROR", f"Failed to register captcha for dashboard: {e}")
             return
 
 async def setup(bot):

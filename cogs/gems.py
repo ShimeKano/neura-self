@@ -149,11 +149,13 @@ class NeuraGems(commands.Cog):
             if now - self.last_inv_time > 15:
                 cnf = self.bot.config.get('commands', {}).get('gems', {})
                 type_cfg = cnf.get('types', {})
+                st = self.bot.stats
+                force_lucky = st.get('force_lucky_gems', False)
                 
                 missing_types = []
                 if type_cfg.get('huntGem', True): missing_types.append('huntGem')
                 if type_cfg.get('empoweredGem', True): missing_types.append('empoweredGem')
-                if type_cfg.get('luckyGem', True): missing_types.append('luckyGem')
+                if type_cfg.get('luckyGem', True) or force_lucky: missing_types.append('luckyGem')
                 if type_cfg.get('specialGem', False): missing_types.append('specialGem')
                 
                 if missing_types:
@@ -205,11 +207,17 @@ class NeuraGems(commands.Cog):
 
             cnf = self.bot.config.get('commands', {}).get('gems', {})
             type_cfg = cnf.get('types', {})
+            st = self.bot.stats
+            force_lucky = st.get('force_lucky_gems', False)
             
             missing_types = []
             if type_cfg.get('huntGem', True) and "huntGem" not in active_gems: missing_types.append("huntGem")
             if type_cfg.get('empoweredGem', True) and "empoweredGem" not in active_gems: missing_types.append("empoweredGem")
-            if type_cfg.get('luckyGem', True) and "luckyGem" not in active_gems: missing_types.append("luckyGem")
+            
+            # If rarity quest is active, we force lucky gems even if disabled in config
+            if (type_cfg.get('luckyGem', True) or force_lucky) and "luckyGem" not in active_gems: 
+                missing_types.append("luckyGem")
+                
             if type_cfg.get('specialGem', False) and "specialGem" not in active_gems: missing_types.append("specialGem")
 
             if missing_types:
@@ -292,13 +300,16 @@ class NeuraGems(commands.Cog):
                 if to_use:
                     cmd_ids = [gid if not gid.startswith('0') else gid[1:] for gid in to_use]
                     use_cmd = f"owo use {' '.join(cmd_ids)}"
+                    uid = str(self.bot.user_id)
+                    if uid in state.account_stats:
+                        st = state.account_stats[uid]
+                        st['gems_used'] = st.get('gems_used', 0) + len(to_use)
+                        state.save_account_stats()
                     await self.bot.neura_enqueue(use_cmd, priority=2)
                     self.bot.log("SUCCESS", f"[NeuraGems] Equipped: {use_cmd}")
                     self.last_inv_time = time.time()
                 else:
                     self.bot.log("WARN", f"[NeuraGems] Inventory checked, but no matching gems found for: {missing_types}")
-
-                pass
 
     async def register_actions(self):
         pass

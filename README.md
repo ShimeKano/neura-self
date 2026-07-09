@@ -1,7 +1,10 @@
 <div align="center">
-  <h1>NeuraSelf</h1>
+  <img src="./dashboard/static/assets/neuraselfbanner.png" alt="NeuraSelf Banner">
   
-  <img src="https://readme-typing-svg.herokuapp.com/?font=Pacifico&size=40&pause=1000&color=FF0000&center=true&vCenter=true&random=false&width=600&lines=Advanced+OwO+Automation;Built+by+ROUTO" alt="NeuraSelf">
+  <br/>
+  <br/>
+
+  <img src="https://readme-typing-svg.herokuapp.com/?font=Pacifico&size=40&pause=1000&color=FF0000&center=true&vCenter=true&random=false&width=600&lines=Advanced+OwO+Automation;Built+by+ROUTO;Star+the+repo" alt="NeuraSelf">
   
   <br/>
   <br/>
@@ -21,10 +24,6 @@
   <br/>
   <br/>
 
-  <img src="https://img.shields.io/badge/discord.py--self-Latest-5865F2?style=flat-square&logo=discord&logoColor=white" />
-  <img src="https://img.shields.io/badge/Flask-2.3.0-000000?style=flat-square&logo=flask&logoColor=white" />
-  <img src="https://img.shields.io/badge/aiohttp-3.12.15-2C5BB4?style=flat-square&logo=aiohttp&logoColor=white" />
-
 </div>
 
 ---
@@ -34,99 +33,46 @@
 
 ## What is NeuraSelf?
 
-**NeuraSelf** is a powerful automation tool designed for Discord's OwO bot. It features human-like behavior, multi-layer security, and a premium web dashboard for real-time monitoring.
+**NeuraSelf** is a powerful, fully-featured OWO-BOT automation tool offering a premium web dashboard. It allows you to monitor all your data in real-time through an easy-to-manage, beautifully designed interface.
 
 ---
 
 ## Key Features
 
-- **Auto HuntBot Solve**: Automatically solves HuntBot captchas using advanced image recognition.
-- **AutoSolvers**: Solve-Captchas both Web captcha(Yes-Captcha Api paid) and letterimage captcha(onnx model free).
-- **Advanced AutoGems**: Intelligent gem sets (Fabled/Legendary) or mixed tiers.
-- **Mobile Support**: Fully functional on Android (Termux) with vibrations and toasts.
-- **Multi-Account**: Run unlimited accounts simultaneously with independent configs.
-- **Dynamic Quest Intelligence**: Auto-completes checklists and tracks progression.
-- **Stealth**: Realistic typing simulation with mistakes and backspacing.
-- **Premium Dashboard**: Real-time stats, charts, and live configuration editor.
-- **Security System**: Auto-pauses on detection, captchas, or OwO captcha DMs.
+- **Premium Web Dashboard**:
+ Real-time stats, charts, and a live configuration editor via an elegant interface.
+- **Smart Captcha Solvers**:
+ Built-in support for seamlessly solving various captchas without the hassle.
 
+- **Multi-Account Manager**:
+ Safely run unlimited accounts simultaneously with independent settings.
+
+- **Advanced Stealth & Security**: Realistic typing simulation, auto-pause on detection, and multi-layer security to keep you safe.
+
+- **Dynamic Quest Intelligence**: Automatically completes checklists and tracks progression.
+
+- **Advanced AutoGems**: Intelligent gem usage (Fabled/Legendary or mixed tiers) to maximize efficiency.
+- **Mobile Support (Termux)**: Fully functional on Android devices with toast notifications and vibrations.
 
 ---
 
 ## Installation
 
-### Windows (PC)
+### Windows
 
-1. Download & Install **Python 3.10+**.
-2. Clone the repository:
-
-    ```bash
-    git clone https://github.com/routo-loop/neura-self
-    cd neura-self
-    ```
-
-3. Install **Requirements** and Add **accounts**:
-
-    ```bash
-    python neura_setup.py
-    ```
-
-4. **Start the Bot:**
-
-    ```bash
-    python neura.py
-    ```
-
-### Android (Termux)
-
-Please see the [MOBILE_GUIDE.md](MOBILE_GUIDE.md) file for detailed Termux instructions.
-
-- **Requirement:** You must install the **Termux:API** app from F-Droid for mobile features to work.
-
----
-
-## Configuration
-
-NeuraSelf uses two main configuration files in the `config/` folder.
-
-### 1. config/accounts.json (Multi-Account Setup)
-
-This is where you define your accounts. You can add as many as you want!
-
-**Template:**
-
-```json
-{
-    "accounts": [
-        {
-            "token": "YOUR_FIRST_ACCOUNT_TOKEN",
-            "channels": ["CHANNEL_ID_1", "CHANNEL_ID_2"],
-            "enabled": true
-        },
-        {
-            "token": "YOUR_SECOND_ACCOUNT_TOKEN",
-            "channels": ["CHANNEL_ID_3", "CHANNEL_ID_4"],
-            "enabled": true
-        }
-    ]
-}
+```bash
+curl -o "%TEMP%\install_neuraself.bat" https://raw.githubusercontent.com/routo-loop/neura-self/main/install_neuraself.bat && "%TEMP%\install_neuraself.bat"
 ```
 
-- **token**: Your Discord account token.
+### Termux / Linux / MacOS
 
-- **channels**: A list of Channel IDs to use. If you put multiple, the bot will rotate between them.
-- **enabled**: Set to `true` to run this account, or `false` to skip it.
+```bash
+bash <(curl -s https://raw.githubusercontent.com/routo-loop/neura-self/main/install_neuraself.sh)
+```
 
-### 2. config/settings.json (Behavior)
+#### For Termux
 
-This file controls the global settings for all bots.
-
-- **Stealth**: Typing speed, mistake rates.
-- **Cooldowns**: Custom delays between commands.
-- **Features**: Enable/Disable Gem usage, Auto-Sell, etc.
-- Then when you run your selfbot with token or tokens so it will create copy of settings.json
-with id for specific account like settings_123456.json and it will create multiple if you have 
-multiple accounts and then you can adjust settings for specific account.
+Make sure to install the **Termux** and **Termux:API** apps from F-Droid or GitHub (grant the API app notifications permission). After the installation script finishes, follow the setup steps prompted by `neura_setup.py`. If you face issues with the basic installation, try the manual installation method.
 
 ---
 
@@ -140,14 +86,22 @@ Once the bot is running, you can access the beautiful dashboard at:
 
 ## Disclaimer
 
-This tool is for **educational purposes only**. Using self-bots violates Discord's Terms of Service and may result in account termination.
+This tool is for **educational purposes only**. Using self-bots violates Discord's Terms of Service.
 
 <div align="center">
 
 ### NeuraSelf
 
-**Advanced OwO Bot Grinder ** • Built by **ROUTO** • Made with ❤️
+**Advanced OwO Bot Grinder** • Built by **ROUTO** • Made with ❤️
 
 **Star this project if you find it useful!**
 
 </div>
+
+## Screenshots
+
+### CLI Screenshot
+![CLI Screenshot](dashboard/static/assets/neura-cli.jpg)
+
+### Dashboard
+![Dashboard](dashboard/static/assets/dashboard-neura.jpg)

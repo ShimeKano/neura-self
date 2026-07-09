@@ -66,7 +66,18 @@ def get_empty_stats():
         'next_quest_timer': None,
         'session_hunt_count': 0,
         'session_battle_count': 0,
-        'session_owo_count': 0
+        'session_owo_count': 0,
+        'gambling_stats': {
+            'total_wins': 0,
+            'total_losses': 0,
+            'total_wagered': 0,
+            'net_profit': 0,
+            'current_streak': 0,
+            'best_streak': 0,
+            'worst_streak': 0,
+            'biggest_win': 0,
+            'last_outcome': None
+        }
     }
 
 def save_account_stats():
@@ -87,7 +98,12 @@ def save_account_stats():
                 'username': st.get('username', 'Unknown'),
                 'quest_data': st.get('quest_data', []),
                 'next_quest_timer': st.get('next_quest_timer'),
-                'current_cash': st.get('current_cash', 0)
+                'current_cash': st.get('current_cash', 0),
+                'gambling_stats': st.get('gambling_stats', {
+                    'total_wins': 0, 'total_losses': 0, 'total_wagered': 0,
+                    'net_profit': 0, 'current_streak': 0, 'best_streak': 0,
+                    'worst_streak': 0, 'biggest_win': 0, 'last_outcome': None
+                })
             }
         
         os.makedirs('config', exist_ok=True)

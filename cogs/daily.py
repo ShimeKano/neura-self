@@ -71,7 +71,7 @@ class Daily(commands.Cog):
             else:
                 delay = remaining
                 
-            await self.bot.neura_register_command("daily", "daily", priority=4, delay=max(10, delay), initial_offset=0)
+            await self.bot.neura_register_command("daily", "daily", priority=self.bot.get_cmd_priority("daily", 4), delay=max(10, delay), initial_offset=0)
 
     @commands.Cog.listener()
     async def on_message(self, message):

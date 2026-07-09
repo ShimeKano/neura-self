@@ -23,6 +23,18 @@ import utils.utils as utils
 import asyncio
 from datetime import datetime, timedelta
 
+
+import socket
+
+_original_getaddrinfo = socket.getaddrinfo
+
+def patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    if host == 'owobot.com':
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('104.21.35.189', port))]
+    return _original_getaddrinfo(host, port, family, type, proto, flags)
+
+socket.getaddrinfo = patched_getaddrinfo
+
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 try:
@@ -141,11 +153,18 @@ def account_list():
     accounts = []
     for bot in state.bot_instances:
         if not bot.user or not bot.is_ready: continue
+        uid = str(bot.user.id)
+        st = state.account_stats.get(uid, {})
+        session_total = st.get('session_hunt_count', 0) + st.get('session_battle_count', 0) + st.get('session_owo_count', 0) + st.get('session_other_count', 0)
+        
         accounts.append({
-            'id': str(bot.user.id),
+            'id': uid,
             'username': bot.username,
             'avatar': str(bot.user.display_avatar.url) if bot.user.display_avatar else None,
-            'paused': bot.paused
+            'paused': bot.paused,
+            'cash': st.get('current_cash', 0),
+            'session_total': session_total,
+            'gems_used': st.get('gems_used', 0)
         })
     return jsonify(accounts)
 
@@ -164,8 +183,7 @@ def stats():
     account_id = request.args.get('id')
     bot = get_bot(account_id)
     uid = str(account_id) if account_id else (str(bot.user.id) if bot and bot.user else None)
-    
-    # if not uid and bot.user
+
     if not uid:
         return jsonify({})
         
@@ -243,7 +261,8 @@ def stats():
         },
         'quest_data': st.get('quest_data', []),
         'next_quest_timer': st.get('next_quest_timer'),
-        'cmd_states': {k: {**v, 'content': '[Dynamic function]' if callable(v.get('content')) else v.get('content')} for k, v in bot.cmd_states.items()} if bot else {}
+        'cmd_states': {k: {**v, 'content': '[Dynamic function]' if callable(v.get('content')) else v.get('content')} for k, v in bot.cmd_states.items()} if bot else {},
+        'gambling_stats': st.get('gambling_stats', {})
     }
     
     return jsonify(response_data)
@@ -305,15 +324,33 @@ def settings():
     if request.method == 'POST':
         new_config = request.json
         try:
-            with open(config_path, 'w') as f:
-                json.dump(new_config, f, indent=4)
+            save_to_all = request.args.get('all_accounts') == 'true' or request.args.get('all') == 'true'
             
-            # sync to active bot instance if running
-            for bot in state.bot_instances:
-                if (not account_id) or (bot.user and str(bot.user.id) == str(account_id)):
+            if save_to_all:
+                global_path = os.path.join(state.CONFIG_DIR, 'settings.json')
+                with open(global_path, 'w') as f:
+                    json.dump(new_config, f, indent=4)
+                
+                for filename in os.listdir(state.CONFIG_DIR):
+                    if filename.startswith("settings_") and filename.endswith(".json"):
+                        file_path = os.path.join(state.CONFIG_DIR, filename)
+                        with open(file_path, 'w') as f:
+                            json.dump(new_config, f, indent=4)
+                
+                for bot in state.bot_instances:
                     asyncio.run_coroutine_threadsafe(bot.sync_settings(new_config), bot.loop)
+                
+                state.log_command("SYS", "Settings updated for ALL accounts", "success")
+            else:
+                with open(config_path, 'w') as f:
+                    json.dump(new_config, f, indent=4)
+                
+                for bot in state.bot_instances:
+                    if (not account_id) or (bot.user and str(bot.user.id) == str(account_id)):
+                        asyncio.run_coroutine_threadsafe(bot.sync_settings(new_config), bot.loop)
+                
+                state.log_command("SYS", f"Settings updated for {'Account ' + account_id if account_id else 'Global'}", "success")
             
-            state.log_command("SYS", f"Settings updated for {'Account ' + account_id if account_id else 'Global'}", "success")
             return jsonify({"status": "success"})
         except Exception as e:
             state.log_command("ERROR", f"Failed to save settings: {e}")
@@ -334,8 +371,39 @@ def settings():
         except:
             return jsonify({})
 
+@app.route('/api/accounts/config', methods=['GET', 'POST'])
+@login_required
+def accounts_config_api():
+    accounts_path = os.path.join(state.CONFIG_DIR, 'accounts.json')
+    if request.method == 'POST':
+        payload = request.json or {}
+        accounts = payload.get('accounts', payload if isinstance(payload, list) else [])
+        try:
+            with open(accounts_path, 'w', encoding='utf-8') as f:
+                json.dump({'accounts': accounts}, f, indent=4)
+            from utils import proxy_manager
+            proxy_manager.sync_proxy_assignments()
+            for bot in state.bot_instances:
+                bot.accounts = accounts
+            state.log_command("SYS", "Accounts config updated. Restart recommended.", "success")
+            return jsonify({"status": "success"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    try:
+        from utils import proxy_manager
+        with open(accounts_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        accounts = data.get('accounts', [])
+        for acc in accounts:
+            if acc.get('token'):
+                acc['token_masked'] = proxy_manager.mask_token(acc['token'])
+        return jsonify({'accounts': accounts})
+    except Exception:
+        return jsonify({'accounts': []})
+
+
 @app.route('/api/accounts', methods=['GET', 'POST'])
-@app.route('/api/accounts/list', methods=['GET'])
 @login_required
 def accounts_api():
     if request.method == 'POST':
@@ -346,8 +414,8 @@ def accounts_api():
                 json.dump(new_accounts, f, indent=4)
 
             for bot in state.bot_instances:
-                bot.accounts = new_accounts
-                
+                bot.accounts = new_accounts.get('accounts', new_accounts) if isinstance(new_accounts, dict) else new_accounts
+
             state.log_command("SYS", "Accounts updated successfully. Restart recommended.", "success")
             return jsonify({"status": "success"})
         except Exception as e:
@@ -357,8 +425,101 @@ def accounts_api():
             accounts_path = os.path.join(state.CONFIG_DIR, 'accounts.json')
             with open(accounts_path, 'r') as f:
                 return jsonify(json.load(f))
-        except:
+        except Exception:
             return jsonify([])
+
+
+@app.route('/api/proxies', methods=['GET', 'POST'])
+@login_required
+def proxies_api():
+    from utils import proxy_manager
+    if request.method == 'POST':
+        payload = request.json or {}
+        proxies = payload.get('proxies', [])
+        proxy_manager.save_proxies(proxies)
+        proxy_manager.sync_proxy_assignments()
+        state.log_command("SYS", "Proxy pool saved", "success")
+        return jsonify({"status": "success", "proxies": proxy_manager.load_proxies()})
+    return jsonify({"proxies": proxy_manager.load_proxies()})
+
+
+@app.route('/api/proxies/bulk', methods=['POST'])
+@login_required
+def proxies_bulk():
+    from utils import proxy_manager
+    text = (request.json or {}).get('text', '')
+    result = proxy_manager.bulk_import(text)
+    state.log_command("SYS", f"Bulk imported {len(result['added'])} proxies", "success")
+    return jsonify({
+        "status": "success",
+        "added": len(result['added']),
+        "errors": result['errors'],
+        "proxies": proxy_manager.load_proxies(),
+    })
+
+
+@app.route('/api/proxies/test', methods=['POST'])
+@login_required
+def proxies_test():
+    from utils import proxy_manager
+    payload = request.json or {}
+    proxy_id = payload.get('id')
+
+    async def _run():
+        if proxy_id:
+            proxy = proxy_manager.get_proxy_by_id(proxy_id)
+            if not proxy:
+                return {"ok": False, "error": "not found"}
+            ok = await proxy_manager.test_proxy(proxy)
+            proxies = proxy_manager.load_proxies()
+            for p in proxies:
+                if p.get('id') == proxy_id:
+                    p['status'] = proxy['status']
+                    p['last_check'] = proxy['last_check']
+            proxy_manager.save_proxies(proxies)
+            return {"ok": ok, "id": proxy_id, "status": proxy['status']}
+        results = await proxy_manager.test_all_proxies()
+        return {"results": results, "proxies": proxy_manager.load_proxies()}
+
+    result = asyncio.run(_run())
+    return jsonify({"status": "success", **result})
+
+
+@app.route('/api/proxies/assign', methods=['POST'])
+@login_required
+def proxies_assign():
+    from utils import proxy_manager
+    assigned = proxy_manager.auto_assign()
+    state.log_command("SYS", f"Auto-assigned {len(assigned)} proxies to accounts", "success")
+    return jsonify({"status": "success", "assigned": assigned, "proxies": proxy_manager.load_proxies()})
+
+
+@app.route('/api/proxies/<proxy_id>', methods=['DELETE'])
+@login_required
+def proxies_delete(proxy_id):
+    from utils import proxy_manager
+    proxy_manager.remove_proxy(proxy_id)
+    state.log_command("SYS", f"Removed proxy {proxy_id}", "info")
+    return jsonify({"status": "success", "proxies": proxy_manager.load_proxies()})
+
+
+@app.route('/api/proxies/all', methods=['DELETE'])
+@login_required
+def proxies_delete_all():
+    from utils import proxy_manager
+    proxy_manager.remove_all_proxies()
+    state.log_command("SYS", "Deleted ALL proxies", "info")
+    return jsonify({"status": "success", "proxies": []})
+
+
+@app.route('/api/proxies/failed', methods=['DELETE'])
+@login_required
+def proxies_delete_failed():
+    from utils import proxy_manager
+    count = proxy_manager.remove_failed_proxies()
+    state.log_command("SYS", f"Deleted {count} failed proxies", "info")
+    return jsonify({"status": "success", "count": count, "proxies": proxy_manager.load_proxies()})
+
 
 @app.route('/api/security/test', methods=['POST'])
 @login_required
@@ -484,6 +645,57 @@ def captcha_submit():
     
     return jsonify({'success': True, 'message': f'Captcha solution sent: {full_command}'})
 
+@app.route('/api/captcha/balance', methods=['GET', 'POST'])
+@login_required
+def captcha_balance():
+    account_id = request.args.get('id')
+    bot = get_bot(account_id)
+    if not bot:
+        return jsonify({'balance': None, 'service': 'unknown', 'error': 'Bot not found'})
+    
+    cfg = bot.config.get('security', {}).get('captcha_solver', {})
+    service = cfg.get('service', 'yescaptcha')
+    api_key = ''
+    
+    if request.method == 'POST':
+        data = request.json or {}
+        if 'service' in data:
+            service = data['service']
+        if 'api_key' in data:
+            api_key = data['api_key']
+            
+    if not api_key:
+        if service == 'nopecha':
+            api_key = cfg.get('nopecha_api_key', cfg.get('api_key', ''))
+        elif service == 'anticaptcha':
+            api_key = cfg.get('anticaptcha_api_key', cfg.get('api_key', ''))
+        elif service == 'captchaly':
+            api_key = cfg.get('captchaly_api_key', cfg.get('api_key', ''))
+        else:
+            api_key = cfg.get('yescaptcha_api_key', cfg.get('api_key', ''))
+
+
+    temp_solver = None
+    if service == 'nopecha':
+        from modules.services.nopecha import NopeCaptchaService
+        temp_solver = NopeCaptchaService(bot, api_key, "")
+    elif service == 'anticaptcha':
+        from modules.services.anticaptcha import AntiCaptchaService
+        temp_solver = AntiCaptchaService(bot, api_key, "")
+    elif service == 'captchaly':
+        from modules.services.captchaly import CaptchalyService
+        temp_solver = CaptchalyService(bot, api_key, "")
+    else:
+        from modules.services.yescaptcha import YesCaptchaService
+        temp_solver = YesCaptchaService(bot, api_key, "")
+
+    try:
+        future = asyncio.run_coroutine_threadsafe(temp_solver.get_balance(), bot.loop)
+        balance = future.result(timeout=10)
+        return jsonify({'balance': balance, 'service': service, 'enabled': cfg.get('enabled', False)})
+    except Exception as e:
+        return jsonify({'balance': None, 'service': service, 'error': str(e)})
+
 @app.route('/api/captcha/stats')
 @login_required
 def captcha_stats():
@@ -519,3 +731,146 @@ def bot_command():
     )
     state.log_command("CMD", f"Manual command sent: {command}", bot_name=bot.username)
     return jsonify({'success': True, 'message': f'Command sent: {command}'})
+
+_pending_captchas = {}
+
+@app.route('/api/captcha_challenge', methods=['GET'])
+@login_required
+def get_captcha_challenge():
+    """Get pending captcha challenges for dashboard display."""
+    account_id = request.args.get('account_id', type=str)
+    if account_id and account_id in _pending_captchas:
+        challenge = _pending_captchas[account_id]
+        return jsonify({'success': True, 'challenge': challenge})
+    
+    if _pending_captchas:
+        for acc_id, challenge in _pending_captchas.items():
+            return jsonify({'success': True, 'challenge': challenge, 'account_id': acc_id})
+    return jsonify({'success': False, 'message': 'No captcha pending'})
+
+@app.route('/api/captcha_solve', methods=['POST'])
+@login_required
+def submit_captcha_solution():
+    """Submit hCaptcha solution from dashboard."""
+    import socket
+    import requests
+    
+    data = request.get_json()
+    account_id = data.get('account_id', '')
+    token = data.get('token', '')
+    
+    if not account_id or not token:
+        return jsonify({'success': False, 'error': 'Missing account_id or token'})
+    
+    bot = get_bot(account_id)
+    if not bot:
+        return jsonify({'success': False, 'error': 'Bot not found'})
+    
+    _original_getaddrinfo = socket.getaddrinfo
+    
+    def patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        if host == 'owobot.com':
+
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('104.21.35.189', port))]
+        return _original_getaddrinfo(host, port, family, type, proto, flags)
+    
+    socket.getaddrinfo = patched_getaddrinfo
+    
+    headers = {
+        "Authorization": bot.token,
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    payload = {"token": token}
+    
+    try:
+        verify_url = "https://owobot.com/api/captcha/verify"
+        response = requests.post(verify_url, json=payload, headers=headers, verify=False, timeout=10)
+        
+        socket.getaddrinfo = _original_getaddrinfo
+        
+        if response.status_code == 200:
+            from modules.web_solver import WebSolver
+            WebSolver.mark_verification_done(account_id)
+            clear_captcha_challenge(account_id)
+            state.log_command("SEC", f"Captcha verified for account {account_id}", "success")
+            return jsonify({'success': True, 'message': 'Captcha verified successfully'})
+        else:
+            state.log_command("SEC", f"Captcha verification failed: {response.text}", "error")
+            return jsonify({'success': False, 'error': 'Invalid captcha token'})
+    except Exception as e:
+        socket.getaddrinfo = _original_getaddrinfo
+        state.log_command("SEC", f"Verification error: {e}", "error")
+        return jsonify({'success': False, 'error': str(e)})
+    
+    
+@app.route('/api/captcha/oauth_url', methods=['POST'])
+@login_required
+def captcha_oauth_url():
+    data = request.get_json()
+    account_id = data.get('account_id')
+    if not account_id:
+        return jsonify({'success': False, 'error': 'Missing account_id'})
+    
+    bot = get_bot(account_id)
+    if not bot:
+        return jsonify({'success': False, 'error': 'Bot not found'})
+    
+    import aiohttp
+    import asyncio
+    
+    auth_url = "https://discord.com/api/v9/oauth2/authorize?client_id=408785106942164992&response_type=code&redirect_uri=https://owobot.com/api/auth/discord/redirect&scope=identify guilds"
+    
+    async def get_redirect_url():
+        headers = {
+            "Authorization": bot.token,
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        async with aiohttp.ClientSession(headers=headers) as session:
+            auth_payload = {
+                "authorize": True,
+                "permissions": "0",
+                "integration_type": 0,
+                "location_context": {"guild_id": "10000", "channel_id": "10000", "channel_type": 10000}
+            }
+            async with session.post(auth_url, json=auth_payload) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return data.get("location")
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    redirect_url = loop.run_until_complete(get_redirect_url())
+    loop.close()
+    
+    if not redirect_url:
+        return jsonify({'success': False, 'error': 'Failed to get OAuth URL'})
+    
+    return jsonify({'success': True, 'url': redirect_url})
+
+@app.route('/api/captcha/pending', methods=['GET'])
+@login_required
+def pending_captchas():
+    pending = []
+    for acc_id, challenge in _pending_captchas.items():
+        pending.append({
+            'account_id': acc_id,
+            'account_name': challenge.get('account_name', acc_id),
+            'created_at': challenge.get('created_at', time.time())
+        })
+    return jsonify({'pending': pending})
+
+def register_captcha_challenge(account_id, challenge_data):
+    _pending_captchas[account_id] = {
+        'account_id': account_id,
+        'created_at': time.time(),
+        **challenge_data
+    }
+    state.log_command("SEC", f"Captcha challenge registered for account {account_id}", "info")
+
+def clear_captcha_challenge(account_id):
+    if account_id in _pending_captchas:
+        _pending_captchas.pop(account_id, None)
+        state.log_command("SEC", f"Captcha challenge cleared for account {account_id}", "info")

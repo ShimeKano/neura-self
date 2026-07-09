@@ -9,6 +9,7 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
 import sys
 import os
 import subprocess
@@ -30,7 +31,7 @@ def ensure_dependencies():
         if is_mobile:
             subprocess.run(["pkg", "install", "git", "-y"], capture_output=True)
             
-        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "discord.py", "discord.py-self"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "discord" , "discord.py", "discord.py-self"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/dolfies/discord.py-self@20ae80b398ec83fa272f0a96812140e14868c88"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print("[+] Fixed. Restarting...\n")
         os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -52,6 +53,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from core.bot import NeuraBot
 from dashboard.app import app as flask_app
 import core.state as state
+from utils import proxy_manager
 
 console = Console()
 
@@ -135,6 +137,9 @@ async def main():
             time.sleep(2)
             continue
             
+        import utils.history_tracker as ht
+        ht.start_session()
+        
         dashboard_thread = threading.Thread(target=run_dashboard, daemon=True)
         dashboard_thread.start()
         
@@ -156,7 +161,14 @@ async def main():
                          valid_channels.append(ch)
             
             try:
-                bot = NeuraBot(token=token, channels=valid_channels)
+                proxy_url, proxy_auth, proxy_label = proxy_manager.resolve_account_proxy(acc)
+                bot = NeuraBot(
+                    token=token,
+                    channels=valid_channels,
+                    proxy_url=proxy_url,
+                    proxy_auth=proxy_auth,
+                    proxy_label=proxy_label,
+                )
                 state.bot_instances.append(bot)
                 bots.append(bot)
                 

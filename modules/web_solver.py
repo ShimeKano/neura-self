@@ -15,82 +15,106 @@ import aiohttp
 import time
 import json
 import re
+import webbrowser
+import sys
+import os
 import subprocess
+from urllib.parse import quote
+
+from modules.services.yescaptcha import YesCaptchaService
+from modules.services.nopecha import NopeCaptchaService
+from modules.services.anticaptcha import AntiCaptchaService
+from modules.services.captchaly import CaptchalyService
+
 
 class WebSolver:
+    _manual_lock = asyncio.Lock()
+    _solve_queue = asyncio.Queue()
+    _processor_task = None
+    _verification_futures = {}
+
     def __init__(self, bot):
         self.bot = bot
         cfg = self.bot.config.get('security', {}).get('captcha_solver', {})
         self.api_key = cfg.get('api_key', '')
+        self.active_service_name = cfg.get('service', 'yescaptcha').lower()
         self.enabled = cfg.get('enabled', True)
         self.browser_cfg = cfg.get('browser_config', {})
         self.site_key = "a6a1d5ce-612d-472d-8e37-7601408fbc09"
         self.auth_url = "https://discord.com/api/v9/oauth2/authorize?client_id=408785106942164992&response_type=code&redirect_uri=https://owobot.com/api/auth/discord/redirect&scope=identify guilds"
 
+        if self.active_service_name == 'nopecha':
+            self.active_key = cfg.get('nopecha_api_key', self.api_key)
+            self.service = NopeCaptchaService(bot, self.active_key, self.site_key)
+        elif self.active_service_name == 'anticaptcha':
+            self.active_key = cfg.get('anticaptcha_api_key', self.api_key)
+            self.service = AntiCaptchaService(bot, self.active_key, self.site_key)
+        elif self.active_service_name == 'captchaly':
+            self.active_key = cfg.get('captchaly_api_key', self.api_key)
+            self.service = CaptchalyService(bot, self.active_key, self.site_key)
+        else:
+            self.active_key = cfg.get('yescaptcha_api_key', self.api_key)
+            self.service = YesCaptchaService(bot, self.active_key, self.site_key)
+
     async def get_balance(self):
-        if not self.api_key: return 0
-        url = "https://api.yescaptcha.com/getBalance"
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json={"clientKey": self.api_key}, timeout=10) as resp:
-                    data = await resp.json()
-                    return int(data.get("balance", 0)) if data.get("errorId") == 0 else 0
-        except: return 0
+        return await self.service.get_balance()
 
     async def solve_hcaptcha(self, retries=3):
-        """solves hcaptcha using yescaptcha api and returns the token"""
-        create_url = "https://api.yescaptcha.com/createTask"
-        result_url = "https://api.yescaptcha.com/getTaskResult"
-        
-        payload = {
-            "clientKey": self.api_key,
-            "task": {
-                "type": "HCaptchaTaskProxyless",
-                "websiteKey": self.site_key,
-                "websiteURL": "https://owobot.com",
-            },
-            "softID": 94493,
+        return await self.service.solve_hcaptcha(retries)
+
+    async def verify_token(self, token):
+        import socket
+        import requests
+
+        _original_getaddrinfo = socket.getaddrinfo
+
+        def patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            if host == 'owobot.com':
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('104.21.35.189', port))]
+            return _original_getaddrinfo(host, port, family, type, proto, flags)
+
+        socket.getaddrinfo = patched_getaddrinfo
+
+        headers = {
+            "Authorization": self.bot.token,
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+        payload = {"token": token}
 
-        async with aiohttp.ClientSession() as session:
-            for attempt in range(retries):
-                try:
-                    self.bot.log("SYS", f"Creating YesCaptcha task (Attempt {attempt+1})...")
-                    async with session.post(create_url, json=payload) as resp:
-                        data = await resp.json()
-                    
-                    if data.get("errorId") != 0:
-                        self.bot.log("ERROR", f"YesCaptcha Error: {data.get('errorDescription')}")
-                        continue
-
-                    task_id = data.get("taskId")
-                    for _ in range(60): 
-                        await asyncio.sleep(2)
-                        async with session.post(result_url, json={"clientKey": self.api_key, "taskId": task_id}) as res_resp:
-                            res = await res_resp.json()
-                        
-                        if res.get("status") == "ready":
-                            return res["solution"]["gRecaptchaResponse"]
-                        if res.get("errorId") != 0: break
-                except Exception as e:
-                    self.bot.log("ERROR", f"Solver task failed: {e}")
-            return None
+        try:
+            verify_url = "https://owobot.com/api/captcha/verify"
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: requests.post(verify_url, json=payload, headers=headers, verify=False, timeout=10)
+            )
+            return response.status_code == 200
+        finally:
+            socket.getaddrinfo = _original_getaddrinfo
 
     async def auto_verify(self, tries=3):
-
-        if not self.api_key:
-            self.bot.log("ERROR", "YesCaptcha API key missing in settings.")
+        if not self.active_key and self.active_service_name != 'nopecha':
+            self.bot.log("ERROR", f"{self.active_service_name.capitalize()} API key missing in settings.")
             return False
 
         balance = await self.get_balance()
-        if balance < 30:
+        if self.active_service_name == 'yescaptcha' and balance < 30:
             self.bot.log("ERROR", f"YesCaptcha balance too low: {balance}")
+            return False
+        elif self.active_service_name == 'nopecha' and balance < 1:
+            self.bot.log("ERROR", f"NopeCHA balance too low: {balance}")
+            return False
+        elif self.active_service_name == 'anticaptcha' and balance < 0.5:
+            self.bot.log("ERROR", f"AntiCaptcha balance too low: {balance}")
+            return False
+        elif self.active_service_name == 'captchaly' and balance < 0.005:
+            self.bot.log("ERROR", f"Captchaly balance too low: {balance}")
             return False
 
         headers = {
             "Authorization": self.bot.token,
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x44) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
         async with aiohttp.ClientSession(headers=headers) as session:
@@ -102,29 +126,137 @@ class WebSolver:
                     "location_context": {"guild_id": "10000", "channel_id": "10000", "channel_type": 10000}
                 }
                 async with session.post(self.auth_url, json=auth_payload) as resp:
-                    if resp.status != 200: return False
+                    if resp.status != 200:
+                        return False
                     auth_data = await resp.json()
                     redirect_url = auth_data.get("location")
 
                 if redirect_url:
-                    async with session.get(redirect_url) as r: pass
-
+                    async with session.get(redirect_url) as r:
+                        pass
 
                 solution = await self.solve_hcaptcha(tries)
-                if not solution: return False
+                if not solution:
+                    return False
 
-                verify_url = "https://owobot.com/api/captcha/verify"
-                verify_payload = {"token": solution}
-                async with session.post(verify_url, json=verify_payload, headers={"Referer": "https://owobot.com/captcha", "Origin": "https://owobot.com"}) as v_resp:
-                    return v_resp.status == 200
+                return await self.verify_token(solution)
             except Exception as e:
                 self.bot.log("ERROR", f"Auto-verification failed: {e}")
                 return False
 
-    async def open_in_browser(self, captcha_url=None):
-        """gets oauth redirect url and opens it in browser for auto-login/manual solve"""
+    @classmethod
+    def enqueue_manual_solve(cls, bot_id, captcha_url=None):
+        cls._solve_queue.put_nowait((bot_id, captcha_url or "https://owobot.com/captcha"))
+        if cls._processor_task is None or cls._processor_task.done():
+            cls._processor_task = asyncio.create_task(cls._manual_processor())
+
+    @classmethod
+    async def _manual_processor(cls):
+        while True:
+            try:
+                bot_id, captcha_url = await cls._solve_queue.get()
+
+                async with cls._manual_lock:
+                    future = asyncio.get_event_loop().create_future()
+                    cls._verification_futures[bot_id] = future
+
+                    bot = cls._get_bot_by_user_id(bot_id)
+                    if not bot:
+                        cls._verification_futures.pop(bot_id, None)
+                        cls._solve_queue.task_done()
+                        continue
+
+                    username = getattr(bot, 'username', bot_id)
+                    bot.log("SECURITY", f"[QUEUE] Manual solve started for {username} - {captcha_url}")
+
+                    try:
+                        from dashboard.app import register_captcha_challenge
+                        register_captcha_challenge(bot_id, {"account_name": username, "captcha_url": captcha_url})
+                    except Exception as e:
+                        bot.log("ERROR", f"[QUEUE] Failed to register captcha for dashboard: {e}")
+
+                    async def alert_loop():
+                        start = time.time()
+                        last_alert = 0
+                        while not future.done():
+                            elapsed = int(time.time() - start)
+                            if elapsed > 0 and elapsed % 60 == 0 and elapsed != last_alert:
+                                mins = elapsed // 60
+                                secs = elapsed % 60
+                                if mins == 0:
+                                    bot.log("SECURITY", f"[QUEUE] {username}: {secs}s elapsed – captcha still pending")
+                                elif mins < 10:
+                                    bot.log("SECURITY", f"[QUEUE] {username}: {mins}m {secs}s elapsed – captcha still pending")
+                                else:
+                                    bot.log("SECURITY", f"[QUEUE] {username}: {mins}m {secs}s elapsed – OVER 10 MINUTES! Solve now to avoid strike!")
+                                last_alert = elapsed
+                            await asyncio.sleep(1)
+
+                    alert_task = asyncio.create_task(alert_loop())
+
+                    sec_cfg = bot.config.get("security", {})
+                    if sys.platform == "win32":
+                        auto_open = sec_cfg.get("open_captcha_url_on_pc", False)
+                    else:
+                        auto_open = sec_cfg.get("open_captcha_url_on_mobile", False)
+
+                    if auto_open:
+                        bot.log("SYS", f"[QUEUE] Opening captcha for {username}...")
+                        success = await cls.open_in_browser(captcha_url, bot=bot)
+                        if not success:
+                            bot.log("ERROR", f"[QUEUE] Failed to open browser for {username}")
+
+                    await future 
+
+                    bot.log("SUCCESS", f"[QUEUE] {username}: Manual captcha VERIFIED!")
+
+                    alert_task.cancel()
+                    try:
+                        await alert_task
+                    except asyncio.CancelledError:
+                        pass
+
+                    cls._verification_futures.pop(bot_id, None)
+                    cls._solve_queue.task_done()
+
+            except Exception as e:
+                import traceback
+                print(f"[QUEUE ERROR] Manual processor crashed: {e}")
+                traceback.print_exc()
+
+    @classmethod
+    def _get_bot_by_user_id(cls, user_id):
+        try:
+            for bot in getattr(state, 'bot_instances', []):
+                if hasattr(bot, 'user') and bot.user and str(bot.user.id) == str(user_id):
+                    return bot
+            return None
+        except Exception:
+            return None
+
+    @classmethod
+    def mark_verification_done(cls, bot_id):
+        future = cls._verification_futures.get(bot_id)
+        if future and not future.done():
+            future.set_result(True)
+
+        try:
+            from dashboard.app import clear_captcha_challenge
+            clear_captcha_challenge(bot_id)
+        except Exception as e:
+            bot = cls._get_bot_by_user_id(bot_id)
+            if bot:
+                bot.log("ERROR", f"Failed to clear captcha challenge: {e}")
+
+    @staticmethod
+    async def open_in_browser(captcha_url=None, bot=None):
+        if not bot:
+            return False
+
+        auth_url = "https://discord.com/api/v9/oauth2/authorize?client_id=408785106942164992&response_type=code&redirect_uri=https://owobot.com/api/auth/discord/redirect&scope=identify guilds"
+
         headers = {
-            "Authorization": self.bot.token,
+            "Authorization": bot.token,
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
@@ -136,48 +268,65 @@ class WebSolver:
                     "integration_type": 0,
                     "location_context": {"guild_id": "10000", "channel_id": "10000", "channel_type": 10000}
                 }
-                
-                auth_url = self.auth_url
-                if captcha_url:
-                    from urllib.parse import quote
-                    auth_url += f"&state={quote(captcha_url)}"
 
-                async with session.post(auth_url, json=auth_payload) as resp:
+                full_auth_url = auth_url
+                if captcha_url:
+                    full_auth_url += f"&state={quote(captcha_url)}"
+
+                async with session.post(full_auth_url, json=auth_payload) as resp:
                     if resp.status != 200:
-                        self.bot.log("ERROR", f"Browser Solver: OAuth failed (Status {resp.status})")
+                        bot.log("ERROR", f"Browser Solver: OAuth failed (Status {resp.status})")
                         if captcha_url:
-                            self.bot.log("SYS", "OAuth failed. Opening raw captcha URL as fallback.")
-                            subprocess.Popen(f'start "" "{captcha_url}"', shell=True)
+                            bot.log("SYS", "OAuth failed. Opening raw captcha URL as fallback.")
+                            _open_url(captcha_url, bot)
                         return False
-                    
+
                     auth_data = await resp.json()
                     redirect_url = auth_data.get("location")
 
                 if redirect_url:
-                    self.bot.log("SYS", f"Opening Auth Login for {self.bot.username}...")
-                    
-                    try:
-                        # chrome_path = self.browser_cfg.get('executable_path')
-                        # user_data = self.browser_cfg.get('user_data_dir')
-                        # profile = self.browser_cfg.get('profile_name', 'Default')
-                        # if chrome_path and user_data:
-                        #     subprocess.Popen([
-                        #         chrome_path,
-                        #         f'--user-data-dir={user_data}',
-                        #         f'--profile-directory={profile}',
-                        #         redirect_url
-                        #     ])
-                        # else:
-                        subprocess.Popen(f'start "" "{redirect_url}"', shell=True)
-                        
-                        return True
-                    except Exception as e:
-                        self.bot.log("ERROR", f"Browser launch failed: {e}")
-                        return False
+                    bot.log("SYS", f"Opening Auth Login for {bot.username}...")
+                    _open_url(redirect_url, bot)
+                    return True
                 return False
             except Exception as e:
-                self.bot.log("ERROR", f"Browser solver start failed: {e}")
+                bot.log("ERROR", f"Browser solver start failed: {e}")
                 return False
+
+
+def _open_url(url, bot):
+    """Open a URL in the system browser, with mobile support."""
+    if sys.platform == "win32":
+        webbrowser.open_new_tab(url)
+        return
+
+    if sys.platform == "darwin":
+        webbrowser.open_new_tab(url)
+        return
+
+    if "ANDROID_ROOT" in os.environ or "TERMUX_VERSION" in os.environ:
+        try:
+            subprocess.Popen(["termux-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            bot.log("SYS", "Opened URL using termux-open")
+            return
+        except FileNotFoundError:
+            try:
+                subprocess.Popen(["am", "start", "-a", "android.intent.action.VIEW", "-d", url],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                bot.log("SYS", "Opened URL using am start")
+                return
+            except FileNotFoundError:
+                bot.log("WARN", "Failed to open URL on mobile. Install termux-open or use dashboard.")
+                return
+
+    try:
+        subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        bot.log("SYS", "Opened URL using xdg-open")
+    except FileNotFoundError:
+        bot.log("WARN", "No browser opener found. Use dashboard to open captcha manually.")
+
+
+import core.state as state
 
 def setup_web_solver(bot):
     return WebSolver(bot)

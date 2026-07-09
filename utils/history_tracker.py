@@ -14,6 +14,7 @@ import os
 import time
 import sqlite3
 from datetime import datetime
+import calendar
 
 HISTORY_FILE = 'data/neura_history.db'
 LEGACY_HISTORY_FILE = 'data/history.json'
@@ -227,16 +228,35 @@ def get_analytics_data(start_date=None, end_date=None):
     c.execute(query, params)
     sessions = []
     for row in c.fetchall():
+        sess_id, date_str, start_str, end_str, hunts, battles, commands, captchas = row
+        # Convert "YYYY-MM-DD" + "HH:MM:SS" into a Unix timestamp so JS new Date(ts * 1000) works
+        start_unix = None
+        if date_str and start_str:
+            try:
+                dt_str = f"{date_str} {start_str}"
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                start_unix = int(calendar.timegm(dt.timetuple()))
+            except Exception:
+                start_unix = None
+        end_unix = None
+        if date_str and end_str:
+            try:
+                # end_time might be just HH:MM:SS; if it's less than start, it's next day (edge case ignored)
+                dt_str = f"{date_str} {end_str}"
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                end_unix = int(calendar.timegm(dt.timetuple()))
+            except Exception:
+                end_unix = None
         sessions.append({
-            "id": row[0],
-            "date": row[1],
-            "start_time": row[2],
-            "end_time": row[3],
+            "id": sess_id,
+            "date": date_str,
+            "start_time": start_unix,
+            "end_time": end_unix,
             "stats": {
-                "hunts": row[4],
-                "battles": row[5],
-                "commands": row[6],
-                "captchas": row[7]
+                "hunts": hunts,
+                "battles": battles,
+                "commands": commands,
+                "captchas": captchas
             }
         })
         

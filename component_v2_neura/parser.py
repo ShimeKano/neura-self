@@ -10,9 +10,6 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
-
-import json
-
 COMP_TYPES = {
     1: "action_row",
     2: "button",
@@ -32,8 +29,6 @@ COMP_TYPES = {
     18: "label"
 }
 
-
-# temporary approach for v2 components , 
 class V2Component:
     def __init__(self, data):
         self.raw = data
@@ -45,6 +40,8 @@ class V2Component:
         self.label = data.get("label", "")
         self.url = data.get("url")
         self.disabled = data.get("disabled", False)
+        
+        self.emoji = data.get("emoji")
         
         self.media = []
         if self.name == "media_gallery":
@@ -78,17 +75,13 @@ def walker(components_data):
     return flat_list
 
 def parse_v2_message(msg_data):
-    """
-    it parses a raw message dictionary and returns a flattened list of all components usefull
-    for identifying buttons(i think you can understand with my explanation , cannot explain descriptively( due to less time to code)
-    """
+
     if not msg_data or "components" not in msg_data:
         return []
     
     return walker(msg_data["components"])
 
 def get_boss_battle_id(components):
-
     for comp in components:
         if comp.name == "media_gallery" and comp.media:
             placeholder = comp.media[0].get("placeholder")

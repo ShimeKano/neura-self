@@ -112,7 +112,7 @@ class Shop(commands.Cog):
             await self.bot.neura_register_command(
                 "shop_buy", 
                 self._send_buy_command, 
-                priority=3, 
+                priority=self.bot.get_cmd_priority("shop_buy", 3), 
                 delay=cooldown, 
                 initial_offset=random.randint(60, 120)
             )
@@ -120,7 +120,7 @@ class Shop(commands.Cog):
             await self.bot.neura_register_command(
                 "shop_cash_sync",
                 self._sync_balance,
-                priority=3,
+                priority=self.bot.get_cmd_priority("shop_cash_sync", 3),
                 delay=7200,
                 initial_offset=30
             )

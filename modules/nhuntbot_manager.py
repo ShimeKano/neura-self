@@ -50,11 +50,11 @@ class HuntBotManager:
             if levels[trait] < levels[other]:
                 return user_prio + 2
         
-        # meta rule 2: DURATION focus if below target (default 12h ~ 125 levels)
+        # meta rule 2: duration focus if below target (default 12h ~ 125 levels)
         if trait == "duration" and levels[trait] < config.get('target_duration_lvl', 125):
             return user_prio + 3
 
-        # meta rule 3: EXPERIENCE focus after Gain/Eff are maxed
+        # meta rule 3: exp focus after Gain/Eff are maxed
         if trait == "exp" and levels["efficiency"] >= 215 and levels["gain"] >= 200:
             return 10
 
