@@ -411,6 +411,7 @@ class NeuraBot(commands.Bot):
             ("battle", enabled("battle")),
             ("coinflip", enabled("coinflip")),
             ("slots", enabled("slots")),
+            ("blackjack", enabled("blackjack")),
             ("cursepray", enabled("curse") or enabled("pray")),
             ("daily", enabled("daily")),
             ("quest", enabled("quest")),
