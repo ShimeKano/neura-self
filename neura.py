@@ -9,10 +9,38 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
-import asyncio
-import random
 import sys
 import os
+import subprocess
+from importlib.metadata import version, PackageNotFoundError
+
+def ensure_dependencies():
+    target_hash = "20ae80b"
+    try:
+        from importlib.metadata import version
+        if target_hash in version("discord.py-self"):
+            return
+    except:
+        pass
+    
+    is_mobile = os.path.exists("/data/data/com.termux")
+    print(f"\n[!] Missing or wrong library. Repairing (20ae80b)...")
+    
+    try:
+        if is_mobile:
+            subprocess.run(["pkg", "install", "git", "-y"], capture_output=True)
+            
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "discord.py", "discord.py-self"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/dolfies/discord.py-self@20ae80b398ec83fa272f0a96812140e14868c88"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[+] Fixed. Restarting...\n")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except:
+        sys.exit(1)
+
+ensure_dependencies()
+
+import asyncio
+import random
 import json
 import threading
 import time
@@ -24,8 +52,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from core.bot import NeuraBot
 from dashboard.app import app as flask_app
 import core.state as state
-import subprocess
-from importlib.metadata import version, PackageNotFoundError
 
 console = Console()
 
@@ -73,31 +99,8 @@ def detect_platform():
 def run_dashboard():
     flask_app.run(host='0.0.0.0', port=8000, debug=False, use_reloader=False)
 
-def ensure_dependencies():
-    target_hash = "20ae80b"
-    try:
-        cur_v = version("discord.py-self")
-        if target_hash in cur_v:
-            return
-    except PackageNotFoundError:
-        pass
-    
-    console.print(f"\n[bold yellow][!] discord.py-self version mismatch or missing.[/bold yellow]")
-    console.print("[dim]Updating to required version (20ae80b)...[/dim]\n")
-    
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "discord.py", "discord.py-self"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/dolfies/discord.py-self@20ae80b398ec83fa272f0a96812140e14868c88"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        console.print("[bold green][+] Version synced successfully. Restarting...[/bold green]\n")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-    except Exception as e:
-        console.print(f"[bold red][-] Auto-update failed: {e}[/bold red]")
-        console.print("[yellow]Please run: pip install -r requirements.txt manually.[/yellow]")
-        sys.exit(1)
-
 async def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    ensure_dependencies()
     
     while True:
         show_banner()

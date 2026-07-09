@@ -11,10 +11,40 @@
 
 import os
 import sys
+import subprocess
+from importlib.metadata import version, PackageNotFoundError
+
+def ensure_dependencies():
+    target_hash = "20ae80b"
+    try:
+        if target_hash in version("discord.py-self"):
+            return
+    except:
+        pass
+    
+    is_mobile = os.path.exists("/data/data/com.termux")
+    print(f"\n[!] Missing or wrong library. Repairing (20ae80b)...")
+    
+    try:
+        if is_mobile:
+            subprocess.run(["pkg", "install", "git", "-y"], capture_output=True)
+            
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "discord.py", "discord.py-self"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/dolfies/discord.py-self@20ae80b398ec83fa272f0a96812140e14868c88"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[+] Fixed. Restarting...\n")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        print(f"\n[X] Repair failed: {e}")
+        print("[!] make sure git is installed.")
+        print("[!] Try running: pip install git+https://github.com/dolfies/discord.py-self@20ae80b398ec83fa272f0a96812140e14868c88")
+        input("\nPress Enter to exit...")
+        sys.exit(1)
+
+ensure_dependencies()
+
 import asyncio
 import json
 import time
-import subprocess
 import platform
 import re
 
@@ -215,7 +245,6 @@ async def account_manager():
             if (token.startswith('"') and token.endswith('"')) or (token.startswith("'") and token.endswith("'")):
                 token = token[1:-1]
             
-            # Basic Regex for Token Format
             token_regex = r"^[A-Za-z0-9_\-\.]{24}\.[A-Za-z0-9_\-\.]{6}\.[A-Za-z0-9_\-\.]{27,}$"
             if not re.match(token_regex, token):
                 console.print("[yellow][!] Warning: Token format looks unusual, but I'll save it anyway.[/yellow]")

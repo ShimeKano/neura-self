@@ -1,3 +1,16 @@
+/*
+ * This file is part of NeuraSelf-UwU.
+ * Copyright (c) 2025-Present Routo
+ *
+ * NeuraSelf-UwU is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Rajdhani:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
 
 :root {
@@ -507,7 +520,6 @@ textarea:focus {
     opacity: 0.6;
 }
 
-/* shop rings selection */
 .ring-selection-grid {
     display: flex;
     gap: 15px;
@@ -1642,7 +1654,7 @@ input[type="number"]:focus {
 }
 
 .sec-account-card:hover {
-    transform: translateY(-5px); /* Simplified transition to fix pop-up glitch */
+    transform: translateY(-5px);
     border-color: var(--primary);
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
 }
@@ -2058,20 +2070,19 @@ input[type="number"]:focus {
         flex-wrap: wrap;
         justify-content: flex-end;
         padding: 10px 0;
-        max-width: calc(100% - 60px); 
+        max-width: calc(100% - 60px);
     }
 
     .top-controls {
-        display: none !important; /* Remove top buttons on mobile as requested */
+        display: none !important;
         gap: 10px !important;
         margin-right: 0 !important;
         flex-wrap: wrap;
         justify-content: flex-end;
         padding: 10px 0;
-        max-width: calc(100% - 60px); 
+        max-width: calc(100% - 60px);
     }
 
-    /* Fix for date inputs and select on mobile */
     .top-controls input[type="date"],
     .top-controls .session-select {
         flex: 1 1 auto;
@@ -2609,18 +2620,14 @@ select#session-select option {
         min-height: 100vh;
     }
 
-    /* Global fixed header already handles this */
-
-
-    /* Consistently hidden button text */
     .btn-control .btn-text {
         display: none;
     }
 
     .mobile-menu-toggle {
         display: flex !important;
-        position: absolute; /* Only appear on top, don't follow scroll as requested */
-        top: 25px; /* Fixed "touching top" issue */
+        position: absolute;
+        top: 25px;
         left: 20px;
         z-index: 1001;
     }
@@ -2697,7 +2704,7 @@ select#session-select option {
     color: var(--primary);
     cursor: pointer;
     position: absolute;
-    top: 25px; /* Centered with toggle */
+    top: 25px;
     right: 20px;
     line-height: 1;
     text-shadow: 0 0 10px rgba(255, 31, 31, 0.5);
@@ -2767,13 +2774,27 @@ select#session-select option {
     margin: 0 0 25px 0;
     width: 100%;
     overflow-x: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    padding: 5px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+    padding: 5px 5px 12px 5px;
 }
 
 .config-filter-wrapper::-webkit-scrollbar {
-    display: none;
+    height: 6px;
+}
+
+.config-filter-wrapper::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+}
+
+.config-filter-wrapper::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: 10px;
+}
+
+.config-filter-wrapper::-webkit-scrollbar-thumb:hover {
+    background-color: #ff5555;
 }
 
 .config-filter-bar {

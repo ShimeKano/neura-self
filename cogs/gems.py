@@ -149,7 +149,12 @@ class NeuraGems(commands.Cog):
             if now - self.last_inv_time > 15:
                 cnf = self.bot.config.get('commands', {}).get('gems', {})
                 type_cfg = cnf.get('types', {})
-                missing_types = [t for t, enabled in type_cfg.items() if enabled]
+                
+                missing_types = []
+                if type_cfg.get('huntGem', True): missing_types.append('huntGem')
+                if type_cfg.get('empoweredGem', True): missing_types.append('empoweredGem')
+                if type_cfg.get('luckyGem', True): missing_types.append('luckyGem')
+                if type_cfg.get('specialGem', False): missing_types.append('specialGem')
                 
                 if missing_types:
                     actually_missing = [t for t in missing_types if t not in state.missing_gems_cache.get(self.bot.user_id, [])]
@@ -252,7 +257,13 @@ class NeuraGems(commands.Cog):
   
                 cnf = self.bot.config.get('commands', {}).get('gems', {})
                 type_cfg = cnf.get('types', {})
-                all_enabled_types = [t for t, enabled in type_cfg.items() if enabled]
+                tier_cfg = cnf.get('tiers', {})
+                
+                all_enabled_types = []
+                if type_cfg.get('huntGem', True): all_enabled_types.append('huntGem')
+                if type_cfg.get('empoweredGem', True): all_enabled_types.append('empoweredGem')
+                if type_cfg.get('luckyGem', True): all_enabled_types.append('luckyGem')
+                if type_cfg.get('specialGem', False): all_enabled_types.append('specialGem')
 
                 for g_type in all_enabled_types:
                     idx = type_to_index.get(g_type)
@@ -261,6 +272,7 @@ class NeuraGems(commands.Cog):
                     tier_priority = ['fabled', 'legendary', 'mythical', 'epic', 'rare', 'uncommon', 'common']
                     has_any = False
                     for tier in tier_priority:
+                        if not tier_cfg.get(tier, True): continue 
                         tier_ids = self.gem_tiers.get(tier)
                         if not tier_ids or idx >= len(tier_ids): continue
                         gem_id = tier_ids[idx]
@@ -282,7 +294,6 @@ class NeuraGems(commands.Cog):
                     use_cmd = f"owo use {' '.join(cmd_ids)}"
                     await self.bot.neura_enqueue(use_cmd, priority=2)
                     self.bot.log("SUCCESS", f"[NeuraGems] Equipped: {use_cmd}")
-                    # it prevent rechecking for 10s after using a gem ,,,(it is to prevent spam)
                     self.last_inv_time = time.time()
                 else:
                     self.bot.log("WARN", f"[NeuraGems] Inventory checked, but no matching gems found for: {missing_types}")
