@@ -592,7 +592,7 @@ class NeuraBot(commands.Bot):
 
 
     def check_version(self):
-        CURRENT_VERSION = "2.4.1" 
+        CURRENT_VERSION = "2.4.2" 
         VERSION_URL = "https://raw.githubusercontent.com/routo-loop/neura_status_api/main/version.json"
         
         self.log("SYS", "Checking for updates...")
@@ -600,7 +600,7 @@ class NeuraBot(commands.Bot):
             r = requests.get(VERSION_URL, timeout=5)
             if r.status_code == 200:
                 data = r.json()
-                latest_version = data.get("version", "2.4.0")
+                latest_version = data.get("version", "2.4.2")
                 changelog = data.get("changelog", "No changes listed.")
                 
                 if latest_version != CURRENT_VERSION:
