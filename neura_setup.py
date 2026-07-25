@@ -10,14 +10,9 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
-
-
 """
-i tried to make powerful and easiest setup for my users so they can easily setup or configure
-NeuraSelf without any manual struggle.
-
-Star the repo to support this free project : https://github.com/routo-loop/neura-self
-
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
 """
 
 import asyncio
@@ -27,33 +22,25 @@ import re
 import subprocess
 import sys
 import time
+import argparse
 from importlib.metadata import version
+
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 import core.state as state
 from neura_engines.setup_engine import NeuraSetupEngine, console, Confirm, Prompt, Table, Panel
 from utils import proxy_manager
 
-
-
 engine = NeuraSetupEngine()
 
-neura_ascii = """
- [red]      ▄      ▄███▄     ▄   █▄▄▄▄ ██  [/red]
- [red]      █      █▀   ▀     █  █  ▄▀ █ █ [/red]
- [red]      ██   █ ██▄▄    █   █ █▀▀▌  █▄▄█[/red]
- [red]      █ █  █ █▄   ▄▀ █   █ █  █  █  █[/red]
- [red]      █  █ █ ▀███▀   █▄ ▄█   █      █[/red]
- [red]      █   ██          ▀▀▀   ▀      █ [/red]
- [red]                                    ▀  [/red]
- [bold blue]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold blue]
- [bold cyan]   n e u r a   s e t u p      '__DEV__ROUTO__'   [/bold cyan]
- [bold blue]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold blue]
-"""
-
+from neuraself_ascii.neura_ascii import show_banner
 
 def clean_screen():
     os.system("cls" if os.name == "nt" else "clear")
-
 
 def show_accounts(accounts):
     if not accounts:
@@ -78,7 +65,6 @@ def show_accounts(accounts):
         table.add_row(str(idx + 1), acc.get("name", "user"), preview, proxy_label, active)
     console.print(table)
 
-
 def _pick_proxy():
     proxies = engine.load_proxies()
     choices = [("0", "none (direct)")]
@@ -101,21 +87,17 @@ def _pick_proxy():
         pass
     return None
 
-
 async def account_manager(add_only=False):
     accounts = engine.load_accounts()
     while True:
-        clean_screen()
-        console.print(neura_ascii)
+        show_banner('setup', animate=False)
         console.print("[bold white] account management [/bold white]\n")
         show_accounts(accounts)
-
         if add_only:
             action = "1"
         else:
             console.print("\n[1] add  [2] remove  [3] toggle  [4] verify  [5] bulk import  [6] back")
             action = Prompt.ask("action", choices=["1", "2", "3", "4", "5", "6"], default="6")
-
         if action == "1":
             name = Prompt.ask("account name")
             token = Prompt.ask("token").strip()
@@ -189,7 +171,7 @@ async def account_manager(add_only=False):
                 else:
                     console.print(f"[red]✗ {name}: verification failed ({user})[/red]")
             input("\nverification done. press enter.")
-        elif action == "5":  # bulk import
+        elif action == "5":
             console.print("[dim]provide token file and channel file.[/dim]")
             token_file = Prompt.ask("path to token file (one token per line)")
             if not os.path.exists(token_file):
@@ -226,7 +208,6 @@ async def account_manager(add_only=False):
         else:
             break
 
-
 def show_proxies_table():
     proxies = engine.load_proxies()
     if not proxies:
@@ -252,14 +233,11 @@ def show_proxies_table():
         )
     console.print(table)
 
-
 async def proxy_manager_cli(bulk_only=False):
     while True:
-        clean_screen()
-        console.print(neura_ascii)
+        show_banner('setup', animate=False)
         console.print("[bold white] proxy management [/bold white]\n")
         show_proxies_table()
-
         if bulk_only:
             console.print("\n[dim]paste proxies (one per line). empty line to finish:[/dim]")
             lines = []
@@ -274,12 +252,10 @@ async def proxy_manager_cli(bulk_only=False):
                 if result["errors"]:
                     console.print(f"[yellow]{len(result['errors'])} lines had errors.[/yellow]")
             return
-
         console.print(
             "\n[1] add single  [2] bulk import  [3] test all  [4] test one  [5] auto‑assign  [6] remove  [7] back"
         )
         action = Prompt.ask("action", choices=["1", "2", "3", "4", "5", "6", "7"], default="7")
-
         if action == "1":
             line = Prompt.ask("proxy (host:port)")
             proxy, err = engine.parse_proxy_line(line)
@@ -337,20 +313,16 @@ async def proxy_manager_cli(bulk_only=False):
         else:
             break
 
-
 async def setup_menu():
     while True:
-        clean_screen()
-        console.print(neura_ascii)
+        show_banner('setup', animate=True)
         console.print(" [bold cyan]1.[/bold cyan] quick start [green](setup + launch)[/green]")
         console.print(" [bold cyan]2.[/bold cyan] manage accounts")
         console.print(" [bold cyan]3.[/bold cyan] manage proxies")
         console.print(" [bold cyan]4.[/bold cyan] repair environment")
         console.print(" [bold cyan]5.[/bold cyan] view setup log")
         console.print(" [bold cyan]6.[/bold cyan] exit")
-
         choice = Prompt.ask("choose", choices=["1", "2", "3", "4", "5", "6"], default="1")
-
         if choice == "1":
             ok = engine.run_full_setup()
             if not ok:
@@ -401,16 +373,48 @@ async def setup_menu():
             console.print("\n[magenta]thank you for using neuraself.[/magenta]")
             break
 
+async def quick_start():
+    console.print("[bold cyan]Quick start – setting up and launching...[/bold cyan]")
+    ok = engine.run_full_setup()
+    if not ok:
+        console.print("[red]Setup failed. Please run without --quick to troubleshoot.[/red]")
+        return
+    accounts = engine.load_accounts()
+    if not accounts:
+        console.print("[yellow]No accounts found. Please add at least one account.[/yellow]")
+        await account_manager(add_only=True)
+        accounts = engine.load_accounts()
+        if not accounts:
+            console.print("[red]No accounts added. Cannot launch.[/red]")
+            return
+    proxies = engine.load_proxies()
+    if not proxies:
+        console.print("[yellow]No proxies found. You can run without proxies (direct connection).[/yellow]")
+    console.print("[green]Launching NeuraSelf...[/green]")
+    import neura
+    await neura.main()
 
 def main():
+    parser = argparse.ArgumentParser(description="NeuraSelf Setup")
+    parser.add_argument("--quick", action="store_true", help="Run quick setup and launch bot")
+    parser.add_argument("--setup-only", action="store_true", help="Run setup only (no launch)")
+    args = parser.parse_args()
+
     try:
         import rich
     except ImportError:
         subprocess.run([sys.executable, "-m", "pip", "install", "rich"], capture_output=True)
+
     if not engine.environment_healthy():
         engine.run_full_setup(force_bootstrap=True)
-    asyncio.run(setup_menu())
 
+    if args.quick:
+        asyncio.run(quick_start())
+    elif args.setup_only:
+        console.print("[green]Setup completed.[/green]")
+        sys.exit(0)
+    else:
+        asyncio.run(setup_menu())
 
 if __name__ == "__main__":
     main()

@@ -1,3 +1,20 @@
+# This file is part of NeuraSelf-UwU.
+# Copyright (c) 2025-Present Routo
+#
+# NeuraSelf-UwU is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# You should have received a copy of the GNU General Public License
+# along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
+
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
 import re
 
 def parse_embed(fields):
@@ -7,12 +24,12 @@ def parse_embed(fields):
 
     for field in fields:
         name = field.name or ""
-        d_match = re.search(r'Dealer\s*`\[(\d+)(?:\+\?)?\]`', name)
+        d_match = re.search(r'Dealer\s*`?\[(\d+)(?:\+\?)?\]`?', name)
         if d_match:
             dealer_points = int(d_match.group(1))
             continue
 
-        p_match = re.search(r'`\[(\d+)\](\*?)`', name)
+        p_match = re.search(r'`?\[(\d+)\](\*?)`?', name)
         if p_match:
             player_points = int(p_match.group(1))
             is_soft = bool(p_match.group(2))
@@ -22,7 +39,7 @@ def parse_embed(fields):
 
 
 def get_best_move(dealer_card, player_total, is_soft):
-    """Basic strategy"""
+    """basic strategy but i think good enough to choose correct move"""
     if is_soft:
         if player_total <= 17:
             return "HIT"

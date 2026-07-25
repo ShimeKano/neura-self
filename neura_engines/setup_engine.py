@@ -9,6 +9,14 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
+
 import asyncio
 import json
 import os
@@ -19,7 +27,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from importlib.metadata import distributions, version
+from importlib.metadata import distributions, version, PackageNotFoundError
 
 import core.state as state
 from utils import proxy_manager
@@ -28,34 +36,21 @@ from utils.platform import is_termux
 try:
     from rich.console import Console
     from rich.panel import Panel
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TextColumn,
-        TimeRemainingColumn,
-    )
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
     from rich.prompt import Confirm, Prompt
     from rich.table import Table
 except ImportError:
     subprocess.run([sys.executable, "-m", "pip", "install", "rich"], capture_output=True)
     from rich.console import Console
     from rich.panel import Panel
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TextColumn,
-        TimeRemainingColumn,
-    )
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
     from rich.prompt import Confirm, Prompt
     from rich.table import Table
-
 
 console = Console()
 SETUP_LOG = os.path.join(state.DATA_DIR, "setup.log")
 DEFAULT_PASSWORD = "neuraself_default_password_change_me"
-
+REQUIRED_VERSION_SUFFIX = "+g20ae80b3"
 
 class NeuraSetupEngine:
     def __init__(self):
@@ -89,6 +84,10 @@ class NeuraSetupEngine:
         major, minor = sys.version_info[:2]
         if major < 3 or (major == 3 and minor < 10):
             self._console_log("error", f"python 3.10+ required (found {major}.{minor})")
+            console.print("\n[bold]Please install Python 3.10 or newer:[/bold]")
+            console.print("  - Windows: https://www.python.org/downloads/  (ensure 'Add Python to PATH' is checked)")
+            console.print("  - macOS:   brew install python@3.11")
+            console.print("  - Linux:   sudo apt install python3.11  (or use your package manager)")
             return False
         self._console_log("ok", f"python {major}.{minor} found")
         return True
@@ -101,7 +100,7 @@ class NeuraSetupEngine:
                 ver = result.stdout.strip().split()[-1]
                 self._console_log("ok", f"git {ver} found")
                 return True
-        self._console_log("warn", "git not found – attempting auto-install")
+        self._console_log("warn", "git not found")
         return self.install_git()
 
     def install_git(self):
@@ -109,38 +108,56 @@ class NeuraSetupEngine:
         try:
             if mobile:
                 self._console_log("info", "installing git via pkg...")
-                subprocess.run(["pkg", "update", "-y"], capture_output=True)
-                subprocess.run(["pkg", "install", "git", "-y"], check=True)
+                subprocess.run(["pkg", "update", "-y"], stdout=None, stderr=None)
+                subprocess.run(["pkg", "install", "git", "-y"], stdout=None, stderr=None, check=True)
                 self._console_log("ok", "git installed via pkg")
                 return True
             if sys.platform.startswith("win"):
                 if shutil.which("choco"):
-                    subprocess.run(["choco", "install", "git", "-y"], check=True)
+                    subprocess.run(["choco", "install", "git", "-y"], stdout=None, stderr=None, check=True)
                     self._console_log("ok", "git installed via chocolatey")
                     return True
                 elif shutil.which("winget"):
-                    subprocess.run(["winget", "install", "Git.Git"], check=True)
+                    subprocess.run(["winget", "install", "Git.Git"], stdout=None, stderr=None, check=True)
                     self._console_log("ok", "git installed via winget")
                     return True
                 else:
-                    self._console_log("error", "no package manager found (choco/winget). install git manually.")
+                    self._console_log("error", "no package manager found (choco/winget).")
+                    console.print("\n[bold]Please install Git manually from:[/bold] https://git-scm.com/download/win")
                     return False
             else:
-                # linux/mac
                 if shutil.which("apt"):
-                    subprocess.run(["sudo", "apt", "update"], check=True)
-                    subprocess.run(["sudo", "apt", "install", "-y", "git"], check=True)
+                    subprocess.run(["sudo", "apt", "update"], stdout=None, stderr=None)
+                    subprocess.run(["sudo", "apt", "install", "-y", "git"], stdout=None, stderr=None, check=True)
                     self._console_log("ok", "git installed via apt")
                     return True
                 elif shutil.which("brew"):
-                    subprocess.run(["brew", "install", "git"], check=True)
+                    subprocess.run(["brew", "install", "git"], stdout=None, stderr=None, check=True)
                     self._console_log("ok", "git installed via brew")
                     return True
+                elif shutil.which("dnf"):
+                    subprocess.run(["sudo", "dnf", "install", "-y", "git"], stdout=None, stderr=None, check=True)
+                    self._console_log("ok", "git installed via dnf")
+                    return True
+                elif shutil.which("yum"):
+                    subprocess.run(["sudo", "yum", "install", "-y", "git"], stdout=None, stderr=None, check=True)
+                    self._console_log("ok", "git installed via yum")
+                    return True
+                elif shutil.which("pacman"):
+                    subprocess.run(["sudo", "pacman", "-Sy", "--noconfirm", "git"], stdout=None, stderr=None, check=True)
+                    self._console_log("ok", "git installed via pacman")
+                    return True
+                elif shutil.which("apk"):
+                    subprocess.run(["sudo", "apk", "add", "git"], stdout=None, stderr=None, check=True)
+                    self._console_log("ok", "git installed via apk")
+                    return True
                 else:
-                    self._console_log("error", "unsupported package manager. install git manually.")
+                    self._console_log("error", "unsupported package manager.")
+                    console.print("\n[bold]Please install Git using your system's package manager[/bold] (e.g., 'sudo apt install git' or 'brew install git')")
                     return False
         except Exception as e:
             self._console_log("error", f"git installation failed: {e}")
+            console.print("\n[bold]Please install Git manually:[/bold] https://git-scm.com/downloads")
             return False
 
     def ensure_directories(self):
@@ -221,13 +238,10 @@ class NeuraSetupEngine:
 
     def _discord_self_ok(self):
         try:
-            return "20ae80b" in version("discord.py-self")
-        except Exception:
-            try:
-                import discord
-                return True
-            except ImportError:
-                return False
+            ver = version("discord.py-self")
+            return ver.endswith(REQUIRED_VERSION_SUFFIX)
+        except PackageNotFoundError:
+            return False
 
     def _package_import_ok(self, name):
         import_map = {
@@ -242,6 +256,7 @@ class NeuraSetupEngine:
             "numpy": "numpy",
             "pillow": "PIL",
             "onnxruntime": "onnxruntime",
+            "nopecha": "nopecha",
         }
         key = name.lower().replace("-", "_")
         if key in ("discord_py_self", "discord.py-self"):
@@ -254,6 +269,25 @@ class NeuraSetupEngine:
             except ImportError:
                 return False
         return None
+
+    def _install_discord_self(self):
+        py_bin = sys.executable
+        cmd = [
+            py_bin,
+            "-m",
+            "pip",
+            "install",
+            "git+https://github.com/dolfies/discord.py-self@20ae80b398ec83fa272f0a96812140e14868c88",
+            "--force-reinstall",
+            "--no-cache-dir",
+        ]
+        process = subprocess.Popen(cmd, stdout=None, stderr=None)
+        process.wait()
+        if process.returncode != 0:
+            self._console_log("error", "discord.py-self installation failed")
+            return False
+        self._console_log("ok", "discord.py-self installed correctly")
+        return True
 
     def run_bootstrap(self):
         self._console_log("info", "checking dependencies...")
@@ -279,47 +313,71 @@ class NeuraSetupEngine:
         mobile = is_termux()
         if mobile:
             self._console_log("info", "termux detected – preparing mobile packages")
-            subprocess.run(["pkg", "update", "-y"], capture_output=True)
-            subprocess.run(["pkg", "upgrade", "-y"], capture_output=True)
+            subprocess.run(["pkg", "update", "-y"], stdout=None, stderr=None)
+            
+            env = os.environ.copy()
+            env["DEBIAN_FRONTEND"] = "noninteractive"
+            subprocess.run(
+                ["pkg", "upgrade", "-y", "-o", "Dpkg::Options::=--force-confold"],
+                stdout=None, stderr=None, env=env
+            )
 
-        pkg_map = {"numpy": "python-numpy", "pillow": "python-pillow", "onnxruntime": "python-onnxruntime"}
+        pkg_map = {
+            "numpy": "python-numpy",
+            "pillow": "python-pillow",
+            "onnxruntime": "python-onnxruntime"
+        }
         failed = []
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("installing packages...", total=len(to_install))
-            for name, full in to_install:
-                progress.update(task, description=f"installing {name}")
-                if mobile and name in pkg_map:
-                    result = subprocess.run(["pkg", "install", pkg_map[name], "-y"])
-                else:
-                    result = subprocess.run([py_bin, "-m", "pip", "install", full])
-                if result.returncode != 0:
-                    failed.append(name)
-                    self._console_log("error", f"{name} install failed (exit {result.returncode})")
-                else:
-                    self._console_log("ok", f"{name} installed")
-                progress.advance(task)
+        for name, full in to_install:
+            installed_ok = False
+            for attempt in range(2):
+                try:
+                    if mobile and name in pkg_map:
+                        pkg_cmd = ["pkg", "install", pkg_map[name], "-y"]
+                        result = subprocess.run(pkg_cmd, capture_output=True, text=True)
+                        if result.returncode == 0:
+                            installed_ok = True
+                            self._console_log("ok", f"{name} installed via pkg")
+                            break
+                        else:
+                            self._console_log("warn", f"{name} not found in pkg, falling back to pip")
+                    # pip fallback
+                    self._console_log("info", f"installing {name} with pip...")
+                    result = subprocess.run([py_bin, "-m", "pip", "install", full, "--no-cache-dir"], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        installed_ok = True
+                        self._console_log("ok", f"{name} installed via pip")
+                        break
+                    else:
+                        self._console_log("warn", f"{name} install failed on attempt {attempt+1}, retrying...")
+                        time.sleep(2)
+                except Exception as e:
+                    self._console_log("warn", f"{name} install exception: {e}, retrying...")
+                    time.sleep(2)
+            if not installed_ok:
+                failed.append(name)
+                self._console_log("error", f"{name} install failed after retries")
 
         if failed:
             self._console_log("error", f"some packages failed: {', '.join(failed)}")
+            if any("discord" in p for p in failed):
+                self._console_log("info", "attempting targeted install for discord.py-self...")
+                if not self._install_discord_self():
+                    return False
             return False
         return True
 
     def verify_imports(self):
-        modules = ["discord", "flask", "rich", "aiohttp", "aiohttp_socks", "requests", "numpy", "PIL"]
+        modules = ["discord", "flask", "rich", "aiohttp", "aiohttp_socks", "requests", "numpy", "PIL", "nopecha"]
         missing = []
         for mod in modules:
             try:
                 __import__(mod)
             except ImportError:
                 missing.append(mod)
+        if not self._discord_self_ok():
+            missing.append("discord.py-self (correct version)")
         if missing:
             self._console_log("error", f"import check failed: {', '.join(missing)}")
             return False
@@ -332,11 +390,16 @@ class NeuraSetupEngine:
         if not self.check_python():
             return False
         if not self.check_git():
-            self._console_log("error", "git is required – install manually if auto-install failed")
-            # we don't fail, we continue because some installs might still work
+            self._console_log("error", "git is required – please install it manually if auto-install failed")
+            return False
         self.ensure_directories()
         self.ensure_config_files()
         if force_bootstrap or not self.environment_healthy():
+            if not self._discord_self_ok():
+                self._console_log("info", "discord.py-self missing or incorrect – installing...")
+                if not self._install_discord_self():
+                    self._console_log("error", "discord.py-self installation failed")
+                    return False
             if not self.run_bootstrap():
                 self._console_log("error", "bootstrap failed – check data/setup.log")
                 return False

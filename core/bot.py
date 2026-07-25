@@ -9,6 +9,13 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
 import discord
 from discord.ext import commands
 import json
@@ -96,6 +103,10 @@ class NeuraBot(commands.Bot):
         self.neura_queue = asyncio.PriorityQueue()
         self.neura_scheduler_task = None
         self.is_busy = False
+        self.grind_active_time = 0.0
+        self.last_break_check = 0.0
+        self.is_on_break = False
+        self.break_lock = asyncio.Lock()
 
         
         self.is_mobile = "TERMUX_VERSION" in os.environ or "com.termux" in os.environ.get("PREFIX", "")
@@ -125,9 +136,17 @@ class NeuraBot(commands.Bot):
 
         asyncio.create_task(self._process_pending_commands())
         asyncio.create_task(self.neura_queue_worker())
+        asyncio.create_task(self._track_active_time())
         self.neura_scheduler_task = asyncio.create_task(self.neura_scheduler_worker())
         await self._load_cogs()
     
+    async def _track_active_time(self):
+        await self.wait_until_ready()
+        while self.active:
+            if not self.paused:
+                self.grind_active_time += 1.0
+            await asyncio.sleep(1.0)
+
     async def _process_pending_commands(self):
         await asyncio.sleep(5)
         while True:
@@ -219,46 +238,67 @@ class NeuraBot(commands.Bot):
         if self.session is None:
             self.session = aiohttp.ClientSession()
     
-    async def _send_safe(self, content, skip_typing=False, target_channel_id=None):
+    async def _send_safe(self, content, skip_typing=False, target_channel_id=None, priority=False):
         if not content or not self.is_ready:
             return False
             
         content = self._fix_command(content)
-        current_time = time.time()
-        
-        if current_time < self.warmup_until:
-             await asyncio.sleep(max(0.1, self.warmup_until - current_time))
 
-        if current_time < self.throttle_until:
-            wait = self.throttle_until - current_time
-            self.log("INFO", f"Safety Pause: Resuming in {round(wait, 1)}s (Waiting for OwO Slow-Down)")
-            await asyncio.sleep(wait + 0.1)
+        async with self.command_lock:
+            current_time = time.time()
+            if current_time < self.warmup_until:
+                 await asyncio.sleep(max(0.1, self.warmup_until - current_time))
+
+            if current_time < self.throttle_until:
+                wait = self.throttle_until - current_time
+                if wait == float('inf'):
+                    self.log("INFO", "Safety Pause: Paused until manually resumed or captcha solved")
+                    while self.paused or self.throttle_until == float('inf'):
+                        await asyncio.sleep(1)
+                else:
+                    self.log("INFO", f"Safety Pause: Resuming in {round(wait, 1)}s (Waiting for OwO Slow-Down)")
+                    await asyncio.sleep(wait + 0.1)
+
+            stealth_cfg = self.config.get('stealth', {})
+            typing_enabled = stealth_cfg.get('typing_enabled', False)
+            wait_limit = 0.0 if not typing_enabled else (1.2 if priority else self.min_command_interval)
             
-        c_id = target_channel_id or self.channel_id
-        channel = self.get_channel(c_id)
-        if not channel:
-            try:
-                channel = await self.fetch_channel(c_id)
-            except Exception as e:
-                self.log("ERROR", f"Failed to fetch channel {c_id}: {e}")
+            now = time.time()
+            elapsed = now - self.last_sent_time
+            if elapsed < wait_limit:
+                await asyncio.sleep(wait_limit - elapsed)
+
+            c_id = target_channel_id or self.channel_id
+            channel = self.get_channel(c_id)
+            if not channel:
+                try:
+                    channel = await self.fetch_channel(c_id)
+                except Exception as e:
+                    self.log("ERROR", f"Failed to fetch channel {c_id}: {e}")
+                    return False
+            
+            if not channel:
                 return False
-        
-        if not channel: return False
-        
-        try:
-            stealth = self.config.get('stealth', {}).get('typing', {})
-            if stealth.get('enabled', False) and not skip_typing:
-                sent_ok = await NeuraHuman.neura_send(self, channel, content)
-                if not sent_ok: return False
-            else:
-                await channel.send(content)
-                
-            short_cmd = content[:30] + "..." if len(content) > 30 else content
-            self.log("CMD", f"Sent: {short_cmd}")
-            return True
-        except Exception as e:
-            self.log("ERROR", f"Send failed: {str(e)}")
-            return False
+            
+            try:
+                if typing_enabled and not skip_typing:
+                    sent_ok = await NeuraHuman.neura_send(self, channel, content)
+                    if not sent_ok:
+                        return False
+                else:
+                    await channel.send(content)
+                    
+                self.last_sent_time = time.time()
+                short_cmd = content[:30] + "..." if len(content) > 30 else content
+                typing_str = ""
+                if getattr(self, 'last_typing_time', None):
+                    typing_str = f" ({self.last_typing_time}s)"
+                    self.last_typing_time = None
+                self.log("CMD", f"Sent: {short_cmd}{typing_str}")
+                return True
+            except Exception as e:
+                self.log("ERROR", f"Send failed: {str(e)}")
+                return False
     
     def _fix_command(self, command):
         cmd = command.strip()
@@ -294,38 +334,23 @@ class NeuraBot(commands.Bot):
             return f"{self.prefix}{cmd}"
         return cmd
     
-    async def send_message(self, content, skip_typing=False, priority=False):
-        if not self.active: return False
+    async def send_message(self, content, skip_typing=False, priority=False, target_channel_id=None):
+        if not self.active:
+            return False
         if self.paused and "autohunt" not in content.lower() and "check" not in content.lower():
             return False
         
-        # delay skip
-        stealth_cfg = self.config.get('stealth', {})
-        typing_enabled = stealth_cfg.get('typing_enabled', None)
-        if typing_enabled is None:
-            typing_cfg = stealth_cfg.get('typing', {})
-            typing_enabled = typing_cfg.get('enabled', False) if isinstance(typing_cfg, dict) else False
-        
-        wait_limit = 0.0 if not typing_enabled else (1.2 if priority else self.min_command_interval)
-        
-        async with self.command_lock:
-            now = time.time()
-            elapsed = now - self.last_sent_time
-            if elapsed < wait_limit:
-                await asyncio.sleep(wait_limit - elapsed)
-            
-            if state.checking_gems.get(self.user_id):
-                cmd_clean = content.lower().strip()
-                if "hunt" in cmd_clean or "battle" in cmd_clean:
-                    if "huntbot" not in cmd_clean and "autohunt" not in cmd_clean:
-                        return False
+        if state.checking_gems.get(self.user_id):
+            cmd_clean = content.lower().strip()
+            if "hunt" in cmd_clean or "battle" in cmd_clean:
+                if "huntbot" not in cmd_clean and "autohunt" not in cmd_clean:
+                    return False
 
-            fixed_content = self._fix_command(content)
-            self.last_sent_command = fixed_content
-            self.last_sent_time = time.time()
-            
-            success = await self._send_safe(fixed_content, skip_typing=skip_typing)
-            return success
+        fixed_content = self._fix_command(content)
+        self.last_sent_command = fixed_content
+        
+        success = await self._send_safe(fixed_content, skip_typing=skip_typing, target_channel_id=target_channel_id, priority=priority)
+        return success
     
     @property
     def stats(self):
@@ -575,7 +600,7 @@ class NeuraBot(commands.Bot):
             r = requests.get(VERSION_URL, timeout=5)
             if r.status_code == 200:
                 data = r.json()
-                latest_version = data.get("version", "2.4.1")
+                latest_version = data.get("version", "2.4.0")
                 changelog = data.get("changelog", "No changes listed.")
                 
                 if latest_version != CURRENT_VERSION:
@@ -610,7 +635,7 @@ class NeuraBot(commands.Bot):
         return max(0, self.cmd_cooldowns.get(cmd.lower(), 0) - time.time())
 
     def get_cmd_priority(self, cmd_id, default=3):
-        """Load priority from cmd_priorities.json, fallback to default."""
+        """load priority from cmd_priorities.json, fallback to default."""
         try:
             prio_file = os.path.join(self.base_dir, 'config', 'cmd_priorities.json')
             if os.path.exists(prio_file):
@@ -707,23 +732,6 @@ class NeuraBot(commands.Bot):
                         ran_successfully = True
                         continue
                     
-                    # skip queue delay if stealth is disabled
-                    stealth_cfg = self.config.get('stealth', {})
-                    typing_enabled = stealth_cfg.get('typing_enabled', None)
-                    if typing_enabled is None:
-                        typing_cfg = stealth_cfg.get('typing', {})
-                        typing_enabled = typing_cfg.get('enabled', False) if isinstance(typing_cfg, dict) else False
-                    
-                    if not typing_enabled:
-                        wait_limit = 0.0
-                    else:
-                        wait_limit = 1.2 if priority <= 1 else self.min_command_interval
-                    
-                    now = time.time()
-                    elapsed = now - self.last_sent_time
-                    if elapsed < wait_limit:
-                        await asyncio.sleep(wait_limit - elapsed)
-
                     if self.paused and "autohunt" not in content.lower() and "check" not in content.lower():
                         continue
 
@@ -761,8 +769,8 @@ class NeuraBot(commands.Bot):
                                 self.log("INFO", f"Quest Engine: Deferring '{content}' for {round(remaining, 1)}s (Waiting for '{cmd_id}' cooldown)")
                                 await asyncio.sleep(remaining + 0.5)
 
-                    await self._send_safe(content, skip_typing=skip_typing, target_channel_id=target_channel_id)
-                    self.last_sent_time = time.time()
+                    self.last_sent_command = content
+                    await self._send_safe(content, skip_typing=skip_typing, target_channel_id=target_channel_id, priority=(priority <= 1))
                     ran_successfully = True
                     
                     if cmd_id and cmd_id in self.cmd_states:

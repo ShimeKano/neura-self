@@ -66,7 +66,7 @@
             "amount": 1
         },
         "blackjack": {
-            "enabled": true,
+            "enabled": false,
             "use_shortform": true,
             "amount": 100
         },
@@ -169,13 +169,14 @@
     },
     "stealth": {
         "typing_enabled": true,
-        "speed_preset": "fast",
+        "speed_preset": "slow",
         "speed_custom": {
+            "enabled": true,
             "reaction_min": 0.5,
             "reaction_max": 1,
             "key_delay_min": 0.3,
             "key_delay_max": 0.9,
-            "mistake_rate": 1,
+            "mistake_rate": 100,
             "enter_delay_min": 0.1,
             "enter_delay_max": 0.4
         },

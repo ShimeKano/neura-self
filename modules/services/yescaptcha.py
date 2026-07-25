@@ -10,6 +10,13 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
+
 """ you can singup and on contacting support of yescaptcha you will get 
 free 1500 credits for new singup and you can solve 50 captchas with that"""
 

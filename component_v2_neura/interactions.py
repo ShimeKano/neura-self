@@ -10,6 +10,14 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
+
+
 import aiohttp
 import json
 import base64

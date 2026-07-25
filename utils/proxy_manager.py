@@ -5,6 +5,17 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# You should have received a copy of the GNU General Public License
+# along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
+
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
 
 import asyncio
 import json
@@ -15,7 +26,10 @@ import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-import aiohttp
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
 
 import core.state as state
 
@@ -83,9 +97,9 @@ def _proxy_fingerprint(host, port, username="", password="", proxy_type=DEFAULT_
 
 def parse_proxy_line(line):
     """
-    Parse a single proxy line.
-    Supports: host:port, user:pass@host:port, socks5://..., http://...
-    Returns (proxy_dict, error_message).
+    parse a single proxy line.
+    support: host:port, user:pass@host:port, socks5://..., http://...
+    returns (proxy_dict, error_message).
     """
     line = (line or "").strip()
     if not line or line.startswith("#"):
@@ -174,7 +188,6 @@ def get_proxy_by_id(proxy_id):
 
 
 def resolve_account_proxy(account):
-    """Return (proxy_url, proxy_auth, proxy_label) for an account dict."""
     proxy_id = account.get("proxy_id") if account else None
     if not proxy_id:
         return None, None, "direct"
@@ -279,7 +292,7 @@ def _sync_assigned_to(proxies, accounts):
 def auto_assign():
     proxies = load_proxies()
     accounts = load_accounts()
-    # Only assign proxies that are enabled AND have a healthy status
+
     free_proxies = [
         p for p in proxies
         if p.get("enabled", True)
@@ -317,7 +330,6 @@ def remove_proxy(proxy_id):
 
 
 def remove_all_proxies():
-    """Delete every proxy and clear proxy_id from all accounts."""
     save_proxies([])
     accounts = load_accounts()
     changed = False
@@ -331,7 +343,6 @@ def remove_all_proxies():
 
 
 def remove_failed_proxies():
-    """Delete proxies with status 'fail', clear their assignments from accounts."""
     proxies = load_proxies()
     failed_ids = {p["id"] for p in proxies if p.get("status") == "fail"}
     proxies = [p for p in proxies if p.get("id") not in failed_ids]

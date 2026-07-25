@@ -9,6 +9,13 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
 import asyncio
 import aiohttp
 import time
@@ -137,6 +144,7 @@ class WebSolver:
                 ) as verify_resp:
                     if verify_resp.status == 200:
                         self.bot.log("SUCCESS", "Captcha verified successfully.")
+                        self.mark_verification_done(str(self.bot.user.id))
                         return True
                     else:
                         error_text = await verify_resp.text()
@@ -198,7 +206,7 @@ class WebSolver:
                     alert_task = asyncio.create_task(alert_loop())
 
                     sec_cfg = bot.config.get("security", {})
-                    if sys.platform == "win32":
+                    if not getattr(bot, 'is_mobile', False):
                         auto_open = sec_cfg.get("open_captcha_url_on_pc", False)
                     else:
                         auto_open = sec_cfg.get("open_captcha_url_on_mobile", False)
@@ -298,15 +306,7 @@ class WebSolver:
 
 
 def _open_url(url, bot):
-    if sys.platform == "win32":
-        webbrowser.open_new_tab(url)
-        return
-
-    if sys.platform == "darwin":
-        webbrowser.open_new_tab(url)
-        return
-
-    if "ANDROID_ROOT" in os.environ or "TERMUX_VERSION" in os.environ:
+    if getattr(bot, 'is_mobile', False):
         try:
             subprocess.Popen(["termux-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             bot.log("SYS", "Opened URL using termux-open")
@@ -321,11 +321,42 @@ def _open_url(url, bot):
                 bot.log("WARN", "Failed to open URL on mobile. Install termux-open or use dashboard.")
                 return
 
+    opened = False
     try:
-        subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        bot.log("SYS", "Opened URL using xdg-open")
-    except FileNotFoundError:
-        bot.log("WARN", "No browser opener found. Use dashboard to open captcha manually.")
+        if webbrowser.open_new_tab(url):
+            bot.log("SYS", "Opened URL using webbrowser module")
+            opened = True
+    except Exception:
+        pass
+
+    if not opened:
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["cmd", "/c", "start", "", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                bot.log("SYS", "Opened URL using Windows start command")
+                opened = True
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                bot.log("SYS", "Opened URL using macOS open command")
+                opened = True
+            else:
+                try:
+                    subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    bot.log("SYS", "Opened URL using xdg-open")
+                    opened = True
+                except FileNotFoundError:
+                    try:
+                        subprocess.Popen(["sensible-browser", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        bot.log("SYS", "Opened URL using sensible-browser")
+                        opened = True
+                    except FileNotFoundError:
+                        pass
+        except Exception as e:
+            bot.log("WARN", f"Failed command line opener fallback: {e}")
+
+    if not opened:
+        bot.log("WARN", "All browser opening methods failed. Please use dashboard to solve captcha manually.")
+
 
 
 import core.state as state

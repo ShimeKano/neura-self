@@ -10,6 +10,12 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
 import numpy as np
 import io
 from PIL import Image

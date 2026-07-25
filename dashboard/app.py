@@ -10,6 +10,14 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
+
+
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from functools import wraps
 import threading
@@ -56,7 +64,7 @@ def load_auth_config():
             with open(AUTH_FILE, 'r') as f:
                 cfg = json.load(f)
                 
-            if cfg.get('secret_key') == "generate_a_random_long_secret_key_here_please":
+            if cfg.get('secret_key', '').startswith("generate_a_random_long_secret_key_here_please"):
                 new_secret = secrets.token_hex(32)
                 cfg['secret_key'] = new_secret
                 with open(AUTH_FILE, 'w') as f:
@@ -241,7 +249,7 @@ def stats():
             'channel_id': bot.channel_id if is_active else None,
             'paused': bot.paused if is_active else True,
             'throttled': (time.time() < bot.throttle_until) if is_active else False,
-            'cooldown_remaining': max(0, int(bot.throttle_until - time.time())) if is_active else 0,
+            'cooldown_remaining': 999999 if (is_active and bot.throttle_until == float('inf')) else (max(0, int(bot.throttle_until - time.time())) if is_active else 0),
             'cooldown_command': bot.last_sent_command if is_active else None
         },
         'chart_data': {

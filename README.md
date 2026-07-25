@@ -37,22 +37,33 @@
 
 ---
 
-## Key Features
+## Features
 
-- **Premium Web Dashboard**:
- Real-time stats, charts, and a live configuration editor via an elegant interface.
+- **Full Web Dashboard**:
+ Real-time stats, charts, and a live configuration editor via an elegant interface.Easy to manage
+
+- **Mobile Support (Termux)**: Fully functional on Android devices with toast notifications and vibrations.
+
 - **Smart Captcha Solvers**:
- Built-in support for seamlessly solving various captchas without the hassle.
+ 4captcha services to solve hcaptcha , onnx model to solve letterword captcha and fallback to manual solve
 
 - **Multi-Account Manager**:
  Safely run unlimited accounts simultaneously with independent settings.
 
 - **Advanced Stealth & Security**: Realistic typing simulation, auto-pause on detection, and multi-layer security to keep you safe.
 
+- **Advanced Gambling**:
+Instead of sending just gambling commands, it has strategies (martingale ,flat) also has stoploss and take profit!!
+
 - **Dynamic Quest Intelligence**: Automatically completes checklists and tracks progression.
 
-- **Advanced AutoGems**: Intelligent gem usage (Fabled/Legendary or mixed tiers) to maximize efficiency.
-- **Mobile Support (Termux)**: Fully functional on Android devices with toast notifications and vibrations.
+- **Advanced AutoGems**: Automatically equip gems.
+
+- **Easy to setup** : Setup files make it very easy to download and configure.
+
+- **Many more features........................**
+
+
 
 ---
 
@@ -100,8 +111,11 @@ This tool is for **educational purposes only**. Using self-bots violates Discord
 
 ## Screenshots
 
-### CLI Screenshot
-![CLI Screenshot](dashboard/static/assets/neura-cli.jpg)
+### Login Page Screenshot
+![Login](dashboard/static/assets/neura-auth.jpg)
 
 ### Dashboard
-![Dashboard](dashboard/static/assets/dashboard-neura.jpg)
+![Dashboard](dashboard/static/assets/neura-desktop-dash.jpg)
+
+### Dashboard Mobile
+![Dashboard](dashboard/static/assets/neura-mob.jpg)

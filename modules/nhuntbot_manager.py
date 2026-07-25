@@ -9,6 +9,13 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
 import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -39,7 +46,7 @@ class HuntBotManager:
 
     def _get_dynamic_prio(self, trait: str, levels: Dict[str, int], config: Dict) -> int:
         """ if any dev reviewing code so i try to explain this function :
-        there are 3 rules which i think good for huntbot , and i explain below"""
+        there are 3 rules which i think good for huntbot , and i explained below"""
 
         spec = self.specs[trait]
         user_prio = config.get('priorities', {}).get(trait, spec.base_prio)
@@ -50,7 +57,7 @@ class HuntBotManager:
             if levels[trait] < levels[other]:
                 return user_prio + 2
         
-        # meta rule 2: duration focus if below target (default 12h ~ 125 levels)
+        # meta rule 2: duration focus if below target (default 12h ~ 125 level)
         if trait == "duration" and levels[trait] < config.get('target_duration_lvl', 125):
             return user_prio + 3
 

@@ -1,4 +1,3 @@
-
 # This file is part of NeuraSelf-UwU.
 # Copyright (c) 2025-Present Routo
 #
@@ -9,6 +8,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
+
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
 
 import asyncio
 import time
@@ -214,7 +221,6 @@ class NeuraGems(commands.Cog):
             if type_cfg.get('huntGem', True) and "huntGem" not in active_gems: missing_types.append("huntGem")
             if type_cfg.get('empoweredGem', True) and "empoweredGem" not in active_gems: missing_types.append("empoweredGem")
             
-            # If rarity quest is active, we force lucky gems even if disabled in config
             if (type_cfg.get('luckyGem', True) or force_lucky) and "luckyGem" not in active_gems: 
                 missing_types.append("luckyGem")
                 

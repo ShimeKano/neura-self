@@ -10,36 +10,20 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
 import sys
 import os
-import subprocess
-from importlib.metadata import version, PackageNotFoundError
 
-def ensure_dependencies():
-    target_hash = "20ae80b"
+if sys.stdout.encoding != 'utf-8':
     try:
-        from importlib.metadata import version
-        if target_hash in version("discord.py-self"):
-            return
-    except:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
         pass
-    
-    is_mobile = os.path.exists("/data/data/com.termux")
-    print(f"\n[!] Missing or wrong library. Repairing (20ae80b)...")
-    
-    try:
-        if is_mobile:
-            subprocess.run(["pkg", "install", "git", "-y"], capture_output=True)
-            
-        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "discord" , "discord.py", "discord.py-self"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/dolfies/discord.py-self@20ae80b398ec83fa272f0a96812140e14868c88"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("[+] Fixed. Restarting...\n")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-    except:
-        sys.exit(1)
-
-ensure_dependencies()
-
+import subprocess
 import asyncio
 import random
 import json
@@ -50,33 +34,26 @@ from rich.align import Align
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from neura_engines.setup_engine import NeuraSetupEngine
 from core.bot import NeuraBot
 from dashboard.app import app as flask_app
 import core.state as state
 from utils import proxy_manager
 
 console = Console()
+engine = NeuraSetupEngine()
+
+if not engine.environment_healthy():
+    console.print("[yellow]Environment not healthy – running setup...[/yellow]")
+    if not engine.run_full_setup(force_bootstrap=True):
+        console.print("[red]Setup failed. Please run 'python neura_setup.py' manually.[/red]")
+        sys.exit(1)
+    console.print("[green]Setup complete. Restarting...[/green]")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def show_banner():
-    os.system('cls' if os.name == 'nt' else 'clear') 
-    neura_ascii_art = [
-        "[#ff0000]     ▄   ▄███▄     ▄   █▄▄▄▄ ██  [/#ff0000]",
-        "[#ff0000]      █  █▀   ▀     █  █  ▄▀ █ █ [/#ff0000]",
-        "[#ff0000]  ██   █ ██▄▄    █   █ █▀▀▌  █▄▄█[/#ff0000]",
-        "[#ff0000]  █ █  █ █▄   ▄▀ █   █ █  █  █  █[/#ff0000]",
-        "[#ff0000]  █  █ █ ▀███▀   █▄ ▄█   █      █[/#ff0000]",
-        "[#ff0000]  █   ██          ▀▀▀   ▀      █ [/#ff0000]",
-        "[#ff0000]                              ▀  [/#ff0000]",
-        "[#ff0000]┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈[/#ff0000]",
-        "[bold cyan] N E U R A   S E L F[/bold cyan]  [white]•[/white]  [bold cyan]Made by ROUTO[/bold cyan]",
-        "[#ff0000]┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈[/#ff0000]",
-    ]
-
-    neura_ascii_art = "\n".join(neura_ascii_art)
-    console.print(Align.center(neura_ascii_art))
-    console.print("\n")
-    console.print("\n")
-    console.print("\n")
+    from neuraself_ascii import neura_ascii
+    neura_ascii.show_banner('main')
 
 def detect_platform():
     if "TERMUX_VERSION" in os.environ or "com.termux" in os.environ.get("PREFIX", ""):
@@ -94,7 +71,6 @@ def detect_platform():
     else:
         platform = f"Unknown ({sys.platform})"
         is_termux = False
-
     console.print(f"[bold green]Detected Platform: {platform}[/bold green]")
     return is_termux
 
@@ -103,19 +79,15 @@ def run_dashboard():
 
 async def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    
     while True:
         show_banner()
         is_termux = detect_platform()
         state.load_account_stats()
-        
         console.print("\n[bold cyan]1.[/bold cyan] Start NeuraSelf")
         console.print("[bold cyan]2.[/bold cyan] Manage Accounts")
         console.print("[bold cyan]3.[/bold cyan] Exit")
-        
         from rich.prompt import Prompt
         choice = Prompt.ask("\nSelect option", choices=["1", "2", "3"], default="1")
-        
         if choice == "2":
             import neura_setup
             await neura_setup.account_manager()
@@ -123,7 +95,6 @@ async def main():
         elif choice == "3":
             console.print("\n[yellow]Shutting down. See you next time![/yellow]")
             sys.exit(0)
-            
         try:
             acc_path = os.path.join(state.CONFIG_DIR, 'accounts.json')
             with open(acc_path, 'r') as f:
@@ -131,35 +102,27 @@ async def main():
                 accounts = [a for a in acc_data.get('accounts', []) if a.get('enabled', True)]
         except:
             accounts = []
-
-        if not accounts: 
+        if not accounts:
             console.print("[bold red]No active accounts? Add some in the Account Manager (Option 2).[/bold red]")
             time.sleep(2)
             continue
-            
         import utils.history_tracker as ht
         ht.start_session()
-        
         dashboard_thread = threading.Thread(target=run_dashboard, daemon=True)
         dashboard_thread.start()
-        
         console.print(f"[bold yellow]Initializing {len(accounts)} accounts...[/bold yellow]")
-        
         bots = []
         tasks = []
         for i, acc in enumerate(accounts):
             token = acc.get('token')
             channels = acc.get('channels')
-            
             if not token or "YOUR_TOKEN_HERE" in token or "PLACEHOLDER" in token:
-                 continue
-
+                continue
             valid_channels = []
             if channels:
                 for ch in channels:
                     if ch and "YOUR_CHANNEL_ID_HERE" not in str(ch) and "PLACEHOLDER" not in str(ch):
-                         valid_channels.append(ch)
-            
+                        valid_channels.append(ch)
             try:
                 proxy_url, proxy_auth, proxy_label = proxy_manager.resolve_account_proxy(acc)
                 bot = NeuraBot(
@@ -171,20 +134,16 @@ async def main():
                 )
                 state.bot_instances.append(bot)
                 bots.append(bot)
-                
                 if i > 0:
                     delay = random.uniform(2.5, 4.5)
                     console.print(f"[dim]Waiting {delay:.1f}s for next account...[/dim]")
                     time.sleep(delay)
-
                 asyncio.create_task(bot.run_bot())
                 console.print(f"[green]Starting Account {i+1}/{len(accounts)} ({acc.get('name', 'Unknown')})[/green]")
             except Exception as e:
                 console.print(f"[bold red]Failed to initialize Account {i+1}: {e}[/bold red]")
                 continue
-            
         console.print("[bold green]All accounts are now connecting in background...[/bold green]")
-
         while True:
             await asyncio.sleep(60)
         break
@@ -200,6 +159,5 @@ if __name__ == "__main__":
             ht.end_session()
             state.save_account_stats()
             console.print("\n[bold yellow][!] Systems shut down. History saved.[/bold yellow]")
-        except Exception as e:
-            # console.print(f"[red]shutdown error: {e}[/red]")
+        except Exception:
             pass

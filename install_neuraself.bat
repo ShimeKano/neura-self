@@ -17,117 +17,134 @@ echo.
 
 set "PY_CMD="
 
-py -3.10 --version >nul 2>&1
-if not errorlevel 1 set "PY_CMD=py -3.10"
+call :FindPython py
+if defined PY_CMD goto PythonFound
 
-if not defined PY_CMD (
-    python --version >nul 2>&1
-    if not errorlevel 1 (
-        for /f "tokens=2" %%v in ('python --version 2^>^&1') do (
-            echo %%v | findstr /r "^3\.10\." >nul
-            if not errorlevel 1 set "PY_CMD=python"
-        )
-    )
+call :FindPython python
+if defined PY_CMD goto PythonFound
+
+call :FindPython python3
+if defined PY_CMD goto PythonFound
+
+echo  [!] Python 3.10+ not found.
+echo  [#] Downloading Python installer...
+
+powershell -Command "Invoke-WebRequest -Uri '%PYTHON_URL%' -OutFile '%TEMP%\py_inst.exe'"
+
+if errorlevel 1 (
+    echo.
+    echo  [X] Failed to download Python.
+    echo  Please install Python manually:
+    echo  https://www.python.org/downloads/
+    pause
+    exit /b 1
 )
 
-if not defined PY_CMD (
-    python3 --version >nul 2>&1
-    if not errorlevel 1 (
-        for /f "tokens=2" %%v in ('python3 --version 2^>^&1') do (
-            echo %%v | findstr /r "^3\.10\." >nul
-            if not errorlevel 1 set "PY_CMD=python3"
-        )
-    )
+echo.
+echo  [#] Installing Python...
+
+start /wait powershell -Command "Start-Process '%TEMP%\py_inst.exe' -ArgumentList '/passive InstallAllUsers=1 PrependPath=1 Include_test=0' -Verb RunAs -Wait"
+
+if errorlevel 1 (
+    echo.
+    echo  [X] Python installation failed.
+    del "%TEMP%\py_inst.exe" >nul 2>&1
+    pause
+    exit /b 1
 )
 
-if not defined PY_CMD (
-    echo  [!] python 3.10 not found. starting auto-install...
-    echo  [#] downloading python installer...
+del "%TEMP%\py_inst.exe" >nul 2>&1
 
-    curl -L -o "%TEMP%\py_inst.exe" "%PYTHON_URL%"
+set "PY_CMD=python"
 
-    if errorlevel 1 (
-        echo  [X] download failed. please install python 3.10 manually.
-        pause
-        exit /b 1
-    )
+:PythonFound
 
-    echo  [#] installing python...
-
-    start /wait "" "%TEMP%\py_inst.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
-
-    if errorlevel 1 (
-        echo  [X] installation failed or cancelled.
-        del "%TEMP%\py_inst.exe"
-        pause
-        exit /b 1
-    )
-
-    del "%TEMP%\py_inst.exe"
-    set "PY_CMD=python"
-
-    echo  [OK] python installed.
-) else (
-    echo  [OK] found python: !PY_CMD!
-)
+echo  [OK] Using Python: %PY_CMD%
 
 where git >nul 2>&1
 
 if errorlevel 1 (
-    echo  [!] Git not found. attempting to install...
 
-    where choco >nul 2>&1
+    echo.
+    echo  [!] Git not found.
+
+    where winget >nul 2>&1
 
     if not errorlevel 1 (
-        choco install git -y
-        echo  [OK] git installed via chocolatey
+        echo  [#] Installing Git with winget...
+        winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements
     ) else (
-        where winget >nul 2>&1
+        where choco >nul 2>&1
 
         if not errorlevel 1 (
-            winget install Git.Git
-            echo  [OK] Git installed via winget
+            echo  [#] Installing Git with Chocolatey...
+            choco install git -y
         ) else (
-            echo  [X] no package manager found. please install Git manually.
+            echo.
+            echo  [X] Neither Winget nor Chocolatey is available.
+            echo  Please install Git manually:
+            echo  https://git-scm.com/download/win
             pause
             exit /b 1
         )
     )
-) else (
-    echo  [OK] git found
+
+    where git >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo  [X] Git installation failed.
+        pause
+        exit /b 1
+    )
 )
 
+echo  [OK] Git found.
+
 if exist "%INSTALL_DIR%\.git" (
-    echo  [#] updating existing installation...
+
+    echo.
+    echo  [#] Updating existing installation...
+
     pushd "%INSTALL_DIR%"
     git pull
+    if errorlevel 1 (
+        popd
+        echo  [X] Failed to update repository.
+        pause
+        exit /b 1
+    )
     popd
+
 ) else (
+
     if exist "%INSTALL_DIR%" (
         rmdir /s /q "%INSTALL_DIR%"
     )
 
-    echo  [#] cloning repository...
+    echo.
+    echo  [#] Cloning repository...
 
     git clone "%REPO_URL%" "%INSTALL_DIR%"
 
     if errorlevel 1 (
-        echo  [X] clone failed. check network or url.
+        echo.
+        echo  [X] Clone failed.
         pause
         exit /b 1
     )
-
-    echo  [OK] repo cloned to %INSTALL_DIR%
 )
 
-echo  [#] launching neuraself setup...
+echo.
+echo  [#] Launching setup...
 
 pushd "%INSTALL_DIR%"
 
 %PY_CMD% neura_setup.py --quick
 
 if errorlevel 1 (
-    echo  [X] setup exited with error.
+    popd
+    echo.
+    echo  [X] Setup failed.
     pause
     exit /b 1
 )
@@ -135,8 +152,32 @@ if errorlevel 1 (
 popd
 
 echo.
-echo  [OK] neuraself installed and configured.
-echo  you can now run the bot by going to %INSTALL_DIR% and running neura.py
+echo  [OK] Installation complete.
+echo.
+echo  Installed to:
+echo  %INSTALL_DIR%
+echo.
+echo  Run:
+echo  %INSTALL_DIR%\neura.py
+echo.
 
 pause
 exit /b 0
+
+
+:FindPython
+
+%~1 --version >nul 2>&1
+if errorlevel 1 exit /b
+
+for /f "tokens=2" %%V in ('%~1 --version 2^>^&1') do (
+    set "VER=%%V"
+)
+
+echo !VER! | findstr /R "^3\.1[0-9]\." >nul
+
+if not errorlevel 1 (
+    set "PY_CMD=%~1"
+)
+
+exit /b

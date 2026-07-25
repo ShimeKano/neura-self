@@ -1,5 +1,4 @@
 /* 
-
 # This file is part of NeuraSelf-UwU.
 # Copyright (c) 2025-Present Routo
 #
@@ -10,9 +9,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
-
-
-
 */
 
 const CAPTCHA_SERVICES = {
@@ -344,11 +340,6 @@ window.triggerManualSolve = async function(accountId) {
         } else {
             _manualSolvePopup = popup;
         }
-        await fetch('/api/captcha/manual', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account_id: accountId })
-        });
         showToast('Captcha page opened in new window', 'info');
     } catch (e) {
         showToast('Error opening captcha', 'error');

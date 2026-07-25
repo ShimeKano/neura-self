@@ -9,6 +9,13 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
 import re
 import unicodedata
 
@@ -29,36 +36,44 @@ class IdentityManager:
         return clean.lower().strip()
 
     def is_message_for_me(self, message, role="any", keyword=None):
-        if not message: return False
+        if not message:
+            return False
         
         if self.bot.user.mentioned_in(message): 
             return True
+
         idents = [self.bot.user.name, self.bot.display_name] + getattr(self.bot, 'identifiers', [])
         clean_idents = set()
         for i in idents:
             ci = re.sub(r'[^\w\s]', '', i.lower()).strip()
-            if ci and len(ci) >= 2: clean_idents.add(ci)
+            if ci and len(ci) >= 2:
+                clean_idents.add(ci)
             
         if message.guild:
             member = message.guild.get_member(self.bot.user.id)
             if member and member.nick:
                 nick = member.nick.lower()
                 clean_nick = re.sub(r'[^\w\s]', '', nick).strip()
-                if clean_nick: clean_idents.add(clean_nick)
+                if clean_nick:
+                    clean_idents.add(clean_nick)
 
-        content = (message.content or "").lower()
+        content = self.clean_text(message.content)
         if role == "header":
             first_line = content.split('\n')[0]
             header_texts = [first_line]
             if message.embeds:
                 for em in message.embeds:
-                    if em.title: header_texts.append(em.title.lower())
-                    if em.author and em.author.name: header_texts.append(em.author.name.lower())
-                    if em.description: header_texts.append(em.description.split('\n')[0].lower())
+                    if em.title:
+                        header_texts.append(self.clean_text(em.title))
+                    if em.author and em.author.name:
+                        header_texts.append(self.clean_text(em.author.name))
+                    if em.description:
+                        header_texts.append(self.clean_text(em.description.split('\n')[0]))
             
             for text in header_texts:
                 for ident in clean_idents:
-                    if re.search(rf"\b{re.escape(ident)}(?:'s)?\b", text): return True
+                    if re.search(rf"\b{re.escape(ident)}(?:'s)?\b", text):
+                        return True
             return False
 
         if role in ["source", "target"] and keyword:
@@ -67,13 +82,16 @@ class IdentityManager:
                 parts = content.split(keyword, 1)
                 check_text = parts[0] if role == "source" else parts[1]
                 for ident in clean_idents:
-                    if re.search(rf"\b{re.escape(ident)}\b", check_text): return True
+                    if re.search(rf"\b{re.escape(ident)}\b", check_text):
+                        return True
             return False
+
         texts = [content]
         if message.embeds:
             for em in message.embeds:
                 fields_text = " ".join([f"{f.name} {f.value}" for f in em.fields])
-                texts.append(f"{em.title or ''} {em.author.name if em.author else ''} {em.description or ''} {fields_text}".lower())
+                raw_embed_text = f"{em.title or ''} {em.author.name if em.author else ''} {em.description or ''} {fields_text}"
+                texts.append(self.clean_text(raw_embed_text))
 
         for text in texts:
             for ident in clean_idents:
@@ -84,12 +102,12 @@ class IdentityManager:
 
         full_visible_text = " ".join(texts)
         if any(pat in full_visible_text for pat in self.generic_patterns):
-            ''' In dm, these are always for us. In guild, we assume they are for us 
-            if we are mentioned or if any of our names appear'''
             if not message.guild or self.bot.user.mentioned_in(message):
                 return True
             for ident in clean_idents:
-                if ident in full_visible_text: return True
+                if ident in full_visible_text:
+                    return True
             return False
 
         return False
+

@@ -10,6 +10,14 @@
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
 
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
+
+
 import discord
 from discord.ext import commands
 import asyncio
@@ -191,6 +199,10 @@ class ResponseHandler(commands.Cog):
             return
 
         if not embed.author.name.lower().startswith(self.bot.user.name.lower()):
+            return
+
+        has_dealer_field = any("dealer" in (field.name or "").lower() for field in embed.fields)
+        if not has_dealer_field:
             return
 
         dealer_points, player_points, is_soft = blackjack_agent.parse_embed(embed.fields)

@@ -9,5 +9,13 @@
 # You should have received a copy of the GNU General Public License
 # along with NeuraSelf-UwU. If not, see <https://www.gnu.org/licenses/>.
 
+
+"""
+Author: Routo
+NeuraSelf-UwU - https://github.com/routo-loop/neura-self
+"""
+
+
+
 from .parser import V2Component, parse_v2_message, get_boss_battle_id
 from .interactions import InteractionManager, setup_interactions
