@@ -83,6 +83,8 @@ async def main():
         show_banner()
         is_termux = detect_platform()
         state.load_account_stats()
+        console.print(f"[cyan]Config Directory:[/cyan] {state.CONFIG_DIR}")
+        console.print(f"[cyan]Accounts File:[/cyan] {os.path.join(state.CONFIG_DIR, 'accounts.json')}\n")
         console.print("\n[bold cyan]1.[/bold cyan] Start NeuraSelf")
         console.print("[bold cyan]2.[/bold cyan] Manage Accounts")
         console.print("[bold cyan]3.[/bold cyan] Exit")

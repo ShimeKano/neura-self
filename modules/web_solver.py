@@ -32,7 +32,6 @@ from modules.services.nopecha import NopeCaptchaService
 from modules.services.anticaptcha import AntiCaptchaService
 from modules.services.captchaly import CaptchalyService
 
-
 class WebSolver:
     _manual_lock = asyncio.Lock()
     _solve_queue = asyncio.Queue()
@@ -304,7 +303,6 @@ class WebSolver:
                 bot.log("ERROR", f"Browser solver start failed: {e}")
                 return False
 
-
 def _open_url(url, bot):
     if getattr(bot, 'is_mobile', False):
         try:
@@ -356,8 +354,6 @@ def _open_url(url, bot):
 
     if not opened:
         bot.log("WARN", "All browser opening methods failed. Please use dashboard to solve captcha manually.")
-
-
 
 import core.state as state
 
