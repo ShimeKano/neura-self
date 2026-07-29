@@ -510,7 +510,7 @@ class NeuraBot(commands.Bot):
     def _load_config(self):
         try:
             if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, "r", encoding="utf-8") as f:
                     self.config = json.load(f)
             else:
                 self.config = {}
@@ -524,7 +524,7 @@ class NeuraBot(commands.Bot):
                 
                 if os.path.exists(user_config_file):
                     try:
-                        with open(user_config_file, 'r') as f:
+                        with open(user_config_file, "r", encoding="utf-8") as f:
                             user_cfg = json.load(f)
                             self._deep_merge(self.config, user_cfg)
                         self.log("SYS", f"Using account-specific settings: settings_{uid}.json")
@@ -532,7 +532,7 @@ class NeuraBot(commands.Bot):
                         self.log("ERROR", f"Failed to load user settings_{uid}.json: {e}")
                 else:
                     try:
-                        with open(user_config_file, 'w') as f:
+                        with open(user_config_file, "w", encoding="utf-8") as f:
                             json.dump(self.config, f, indent=4)
                         self.log("SYS", f"Created personal settings file: settings_{uid}.json")
                     except Exception as e:
@@ -569,10 +569,7 @@ class NeuraBot(commands.Bot):
                 self.accounts = load_accounts()
             except Exception:
                 self.accounts = []
-            try:
-                self.accounts = load_accounts()
-            except Exception:
-                self.accounts = []
+            
 
             if self.accounts:
                 current_acc = None
@@ -599,7 +596,7 @@ class NeuraBot(commands.Bot):
             shortform_file = os.path.join(self.base_dir, 'config', 'shortform.json')
             if os.path.exists(shortform_file):
                 try:
-                    with open(shortform_file, 'r') as f:
+                    with open(shortform_file, "r", encoding="utf-8") as f:
                         self.shortforms = json.load(f)
                 except:
                     self.shortforms = {}
