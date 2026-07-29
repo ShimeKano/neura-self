@@ -55,7 +55,7 @@ class NeuraBot(commands.Bot):
         self.accounts = []
         self.token = token
         self.channels = channels or []
-        self.channels = channels or []
+        
         self.proxy_url = proxy_url
         self.proxy_auth = proxy_auth
         self.proxy_label = proxy_label or "direct"
