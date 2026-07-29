@@ -39,6 +39,7 @@ import copy
 import logging
 from rich.console import Console
 from rich.align import Align
+from utils.proxy_manager import load_accounts
 
 _log = logging.getLogger(__name__)
 
@@ -538,15 +539,39 @@ class NeuraBot(commands.Bot):
                         self.log("ERROR", f"Failed to create settings_{uid}.json: {e}")
             else:
                 self.log("SYS", "Using global settings: settings.json")
-
-            account_file = os.path.join(self.base_dir, 'config', 'accounts.json')
-            if os.path.exists(account_file):
-                try:
-                    with open(account_file, 'r') as f:
-                        self.accounts = json.load(f).get('accounts', [])
-                except:
-                    self.accounts = []
-            else:
+            # Override API keys bằng ENV nếu có
+            captcha = self.config.setdefault("security", {}).setdefault("captcha_solver", {})
+            
+            captcha["nopecha_api_key"] = os.getenv(
+                "NOPECHA_API_KEY",
+                captcha.get("nopecha_api_key", "")
+            )
+            
+            captcha["yescaptcha_api_key"] = os.getenv(
+                "YESCAPTCHA_API_KEY",
+                captcha.get("yescaptcha_api_key", "")
+            )
+            
+            captcha["anticaptcha_api_key"] = os.getenv(
+                "ANTICAPTCHA_API_KEY",
+                captcha.get("anticaptcha_api_key", "")
+            )
+            
+            # Override webhook nếu có
+            webhook = self.config.setdefault("security", {}).setdefault("webhook", {})
+            
+            webhook["url"] = os.getenv(
+                "DISCORD_WEBHOOK",
+                webhook.get("url", "")
+            )
+            
+            try:
+                self.accounts = load_accounts()
+            except Exception:
+                self.accounts = []
+            try:
+                self.accounts = load_accounts()
+            except Exception:
                 self.accounts = []
 
             if self.accounts:
