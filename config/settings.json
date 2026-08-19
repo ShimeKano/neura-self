@@ -1,7 +1,7 @@
 {
     "core": {
         "monitor_bot_id": "408785106942164992",
-        "prefix": "owo "
+        "prefix": "o"
     },
     "commands": {
         "owo": {
@@ -44,7 +44,7 @@
                 310,
                 400
             ],
-            "ping": true,
+            "ping": false,
             "targets": ""
         },
         "cookie": {
@@ -91,14 +91,14 @@
                 20
             ],
             "order": {
-                "lowestToHighest": false
+                "lowestToHighest": true
             },
             "tiers": {
                 "common": true,
                 "epic": true,
                 "fabled": false,
                 "legendary": false,
-                "mythical": true,
+                "mythical": false,
                 "rare": true,
                 "uncommon": true
             },
@@ -108,7 +108,7 @@
                 "luckyGem": true,
                 "specialGem": false
             },
-            "use_gems_set": false
+            "use_gems_set": true
         },
         "giveaway": {
             "enabled": true,
@@ -122,9 +122,9 @@
         "huntbot": {
             "enabled": true,
             "use_shortform": true,
-            "cash_to_spend": 3000,
+            "cash_to_spend": 30000,
             "upgrade": {
-                "enabled": true,
+                "enabled": false,
                 "priorities": {
                     "efficiency": 4,
                     "duration": 2,
@@ -182,7 +182,7 @@
         },
         "human_break": {
             "enabled": true,
-            "duration_min": 14,
+            "duration_min": 1,
             "interval_min": 45
         }
     },
@@ -199,10 +199,13 @@
     "security": {
         "enabled": true,
         "captcha_solver": {
-            "enabled": false,
-            "service": "yescaptcha",
+            "enabled": true,
+            "tiered": true,
+            "tier_retries": 3,
+            "service": "tiered",
             "yescaptcha_api_key": "",
             "nopecha_api_key": "",
+            "captchaly_api_key": "",
             "anticaptcha_api_key": ""
         },
         "open_captcha_url_on_pc": true,
@@ -258,6 +261,17 @@
                 650
             ]
         }
+    },
+    "conversation": {
+        "enabled": true,
+        "gemini_api_key": "",
+        "respond_chance": 75,
+        "user_cooldown": 45,
+        "max_history": 6,
+        "detect_threats": true,
+        "caution_duration_sec": 180,
+        "play_game_on_threat": true,
+        "model": "gemini-3-flash-preview"
     },
     "gambling": {
         "min_balance": 40000,
