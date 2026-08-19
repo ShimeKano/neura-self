@@ -41,9 +41,9 @@ from modules.services.captchaly import CaptchalyService
 class TieredCaptchaSolver:
     # Fixed tier order. Nopecha always first.
     TIER_ORDER = [
-        ("nopecha", "nopecha_api_key", NopeCaptchaService),
-        ("yescaptcha", "yescaptcha_api_key", YesCaptchaService),
         ("captchaly", "captchaly_api_key", CaptchalyService),
+        ("yescaptcha", "yescaptcha_api_key", YesCaptchaService),
+        ("nopecha", "nopecha_api_key", NopeCaptchaService),
         ("anticaptcha", "anticaptcha_api_key", AntiCaptchaService),
     ]
 
