@@ -1,17 +1,18 @@
 # NeuraSelf on Hugging Face Spaces
 
-This branch adds a Docker-based Hugging Face Space runtime for the NeuraSelf web dashboard.
+This branch runs the existing Flask dashboard through a **Gradio Space**, so it does not require a Docker Space.
 
 ## Space configuration
 
-Create a **Docker Space** and point it at this repository/branch.
+Create a new Hugging Face Space with:
 
-The container listens on `0.0.0.0:$PORT` and defaults to Hugging Face's standard `7860` port.
+- **SDK:** Gradio
+- **Hardware:** CPU Basic / Free
 
-The dashboard is started by `hf_app.py` instead of the interactive `neura.py` launcher.
+The Space starts `app.py`. Gradio listens on Hugging Face's `$PORT` (normally `7860`) and the existing Flask dashboard runs internally on port `7861`.
 
 ## Important
 
-Hugging Face Spaces storage should not be treated as permanent application storage. Keep secrets such as dashboard credentials and account tokens in Space Secrets rather than committing them to Git.
+Hugging Face Space storage should not be treated as permanent application storage. Keep secrets such as dashboard credentials and account tokens out of Git. Use Space Secrets/environment variables where the application supports them.
 
-The original dependency file contains desktop/Termux-oriented packages. `requirements-huggingface.txt` replaces GUI/audio-oriented dependencies and uses `opencv-python-headless` so the Space can build without a desktop environment.
+The original dependency file contains desktop/Termux-oriented packages. `requirements-huggingface.txt` uses `opencv-python-headless` and omits desktop audio dependencies so the Space can run without a GUI.
