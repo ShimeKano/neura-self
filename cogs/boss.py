@@ -63,11 +63,7 @@ class Boss(commands.Cog):
     @classmethod
     def _ticket_cycle(cls, when=None):
         local_now = when.astimezone(cls.RESET_TZ) if when else datetime.now(cls.RESET_TZ)
-        reset_today = datetime.combine(
-            local_now.date(),
-            dt_time(cls.RESET_HOUR, cls.RESET_MINUTE),
-            tzinfo=cls.RESET_TZ,
-        )
+        reset_today = datetime.combine(local_now.date(), dt_time(cls.RESET_HOUR, cls.RESET_MINUTE), tzinfo=cls.RESET_TZ)
         if local_now < reset_today:
             return (local_now - timedelta(days=1)).date().isoformat()
         return local_now.date().isoformat()
@@ -75,9 +71,7 @@ class Boss(commands.Cog):
     @classmethod
     def _next_reset(cls):
         now = datetime.now(cls.RESET_TZ)
-        reset_today = datetime.combine(
-            now.date(), dt_time(cls.RESET_HOUR, cls.RESET_MINUTE), tzinfo=cls.RESET_TZ
-        )
+        reset_today = datetime.combine(now.date(), dt_time(cls.RESET_HOUR, cls.RESET_MINUTE), tzinfo=cls.RESET_TZ)
         if now >= reset_today:
             reset_today += timedelta(days=1)
         return reset_today
@@ -105,23 +99,14 @@ class Boss(commands.Cog):
         self.target_guilds = self._normalize_ids(cfg.get("target_guilds", []))
         self.ignore_guilds = self._normalize_ids(cfg.get("ignore_guilds", []))
         self._update_playing_guilds()
-
         account_id = str(getattr(self.bot, "user_id", "") or "").strip()
         if account_id:
             new_state_file = os.path.join("data", "boss", f"{account_id}.json")
             if new_state_file != self.state_file:
                 self.state_file = new_state_file
                 self._load_state()
-
-        self.bot.log(
-            "SYS",
-            f"Boss settings refreshed: enabled={self.enabled}, targets={len(self.target_guilds)}, "
-            f"ignored={len(self.ignore_guilds)}, chance={self.join_chance}%"
-        )
-
+        self.bot.log("SYS", f"Boss settings refreshed: enabled={self.enabled}, targets={len(self.target_guilds)}, ignored={len(self.ignore_guilds)}, chance={self.join_chance}%")
         if self.enabled:
-            # register_actions runs before NeuraBot flips is_ready. Wait for the
-            # actual ready state so the startup ticket check cannot be skipped.
             if self._reset_task and not self._reset_task.done():
                 self._reset_task.cancel()
             self._reset_task = asyncio.create_task(self._startup_and_reset_loop())
@@ -133,11 +118,9 @@ class Boss(commands.Cog):
                 return
             self._check_reset()
             await self._request_ticket_check("startup")
-
             while self.enabled and self.bot.active:
                 now = datetime.now(self.RESET_TZ)
-                reset_at = self._next_reset()
-                delay = max(1.0, (reset_at - now).total_seconds())
+                delay = max(1.0, (self._next_reset() - now).total_seconds())
                 await asyncio.sleep(delay)
                 if not self.enabled or not self.bot.active:
                     break
@@ -149,12 +132,12 @@ class Boss(commands.Cog):
             self.bot.log("ERROR", f"Boss reset loop failed: {exc}")
 
     async def on_daily_trigger(self):
-        """Called by Neura's Daily cog as an additional reset/check hook."""
+        """Daily invokes this hook; Boss remains authoritative for the 14:00 boundary."""
         if not self.enabled:
             return
         changed = self._check_reset()
-        if changed:
-            await self._request_ticket_check("daily-trigger")
+        reason = "daily-reset" if changed else "daily-trigger"
+        await self._request_ticket_check(reason)
 
     def _load_state(self):
         self.tickets = 3
@@ -179,12 +162,7 @@ class Boss(commands.Cog):
         try:
             os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
             with open(self.state_file, "w") as f:
-                json.dump({
-                    "tickets": self.tickets,
-                    "last_reset": self.last_reset,
-                    "reset_cycle": self.reset_cycle,
-                    "joined_ids": list(self.joined_ids),
-                }, f)
+                json.dump({"tickets": self.tickets, "last_reset": self.last_reset, "reset_cycle": self.reset_cycle, "joined_ids": list(self.joined_ids)}, f)
         except Exception as exc:
             self.bot.log("ERROR", f"Boss state save failed: {exc}")
 
@@ -198,11 +176,7 @@ class Boss(commands.Cog):
         self.joined_ids.clear()
         self.tickets = 0
         self._save_state()
-        self.bot.log(
-            "BOSS",
-            f"Daily Boss ticket cycle changed {old_cycle or 'none'} -> {cycle} at "
-            f"14:00 Asia/Ho_Chi_Minh; forcing `boss t` check. Next reset: {self._next_reset_text()}"
-        )
+        self.bot.log("BOSS", f"Daily Boss ticket cycle changed {old_cycle or 'none'} -> {cycle} at 14:00 Asia/Ho_Chi_Minh; forcing `boss t` check. Next reset: {self._next_reset_text()}")
         return True
 
     def _is_target_guild(self, guild_id):
@@ -229,12 +203,7 @@ class Boss(commands.Cog):
     @staticmethod
     def _parse_ticket_count(text):
         text = str(text or "").lower()
-        patterns = [
-            r"(\d+)\s*/\s*3\s+boss\s+tickets?",
-            r"(\d+)\s*/\s*3\s+boss\s+ticket",
-            r"boss\s+tickets?.{0,80}?(\d+)\s*/\s*3",
-            r"(\d+)\s+boss\s+tickets?\s+(?:left|remaining)",
-        ]
+        patterns = [r"(\d+)\s*/\s*3\s+boss\s+tickets?", r"(\d+)\s*/\s*3\s+boss\s+ticket", r"boss\s+tickets?.{0,80}?(\d+)\s*/\s*3", r"(\d+)\s+boss\s+tickets?\s+(?:left|remaining)"]
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
@@ -247,7 +216,6 @@ class Boss(commands.Cog):
         if not self.enabled:
             return None
         await self.bot.wait_until_ready()
-
         async with self.ticket_check_lock:
             self.ticket_check_event.clear()
             self.ticket_check_waiting = True
@@ -272,15 +240,11 @@ class Boss(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if str(message.author.id) != self.bot.owo_bot_id:
-            return
-        if message.channel.id != self.bot.channel_id:
+        if str(message.author.id) != self.bot.owo_bot_id or message.channel.id != self.bot.channel_id:
             return
         if not self.bot.is_message_for_me(message):
             return
-
-        full_content = self.bot.get_full_content(message)
-        ticket_count = self._parse_ticket_count(full_content)
+        ticket_count = self._parse_ticket_count(self.bot.get_full_content(message))
         if ticket_count is not None:
             created_at = getattr(message, "created_at", None)
             response_time = created_at.timestamp() if created_at else time.time()
@@ -301,12 +265,10 @@ class Boss(commands.Cog):
             return
         if raw_data.get("t") != "MESSAGE_CREATE":
             return
-
         data = raw_data.get("d", {})
         author_id = str(data.get("author", {}).get("id") or "")
         if author_id != str(self.bot.owo_bot_id):
             return
-
         message_id = str(data.get("id") or "")
         channel_id_raw = data.get("channel_id")
         guild_id = str(data.get("guild_id") or "").strip()
@@ -316,7 +278,6 @@ class Boss(commands.Cog):
             channel_id = int(channel_id_raw)
         except (TypeError, ValueError):
             return
-
         components = parse_v2_message(data)
         content = (data.get("content") or "").lower()
         v2_text = " ".join(c.content for c in components if c.name == "text_display" and c.content).lower()
@@ -324,16 +285,9 @@ class Boss(commands.Cog):
         full_text = f"{content} {v2_text} {labels}"
         is_spawn = "runs away" in full_text or "guild boss" in full_text or "boss battle" in full_text
         fight_btn = self._find_fight_button(components)
-
         if is_spawn or fight_btn:
             button_ids = [str(c.custom_id) for c in components if c.name == "button" and c.custom_id]
-            self.bot.log(
-                "BOSS",
-                f"DETECT message={message_id} guild={guild_id or '-'} channel={channel_id} "
-                f"components={len(components)} buttons={button_ids} spawn={is_spawn} "
-                f"fight_button={'YES' if fight_btn else 'NO'}"
-            )
-
+            self.bot.log("BOSS", f"DETECT message={message_id} guild={guild_id or '-'} channel={channel_id} components={len(components)} buttons={button_ids} spawn={is_spawn} fight_button={'YES' if fight_btn else 'NO'}")
         if not components or (not is_spawn and not fight_btn):
             return
         if guild_id in self.ignore_guilds:
@@ -345,7 +299,6 @@ class Boss(commands.Cog):
         if not fight_btn:
             self.bot.log("BOSS", f"SKIP message={message_id}: no usable fight button")
             return
-
         battle_id = get_boss_battle_id(components)
         if battle_id and battle_id in self.joined_ids:
             self.bot.log("BOSS", f"SKIP message={message_id}: battle {battle_id} already processed")
@@ -354,50 +307,33 @@ class Boss(commands.Cog):
         if tracking_id in self.processing_ids:
             self.bot.log("BOSS", f"SKIP message={message_id}: battle {tracking_id} already processing")
             return
-
         if self._check_reset():
             checked = await self._request_ticket_check("daily-reset")
             if checked is None or checked <= 0:
                 self.bot.log("BOSS", f"SKIP message={message_id}: no tickets after daily reset")
                 return
-
         if self.tickets <= 0:
             checked = await self._request_ticket_check("before-join")
             if checked is None or checked <= 0:
                 self.bot.log("BOSS", f"SKIP message={message_id}: no confirmed Boss tickets")
                 return
-
         if random.randint(1, 100) > self.join_chance:
             self.bot.log("BOSS", f"SKIP message={message_id}: join_chance={self.join_chance}% rejected")
             self.joined_ids.add(tracking_id)
             self._save_state()
             return
-
         self.processing_ids.add(tracking_id)
         try:
-            self.bot.log(
-                "BOSS",
-                f"JOIN attempt message={message_id} guild={guild_id} channel={channel_id} "
-                f"battle={tracking_id} ticket={self.tickets}/3 custom_id={fight_btn.custom_id}"
-            )
+            self.bot.log("BOSS", f"JOIN attempt message={message_id} guild={guild_id} channel={channel_id} battle={tracking_id} ticket={self.tickets}/3 custom_id={fight_btn.custom_id}")
             delay = random.uniform(0.5, 1.5)
             await asyncio.sleep(delay)
             if self.bot.paused:
                 self.bot.log("BOSS", f"ABORT message={message_id}: bot paused during {delay:.2f}s delay")
                 return
-
-            success = await self.bot.interactions.click_button_raw(
-                custom_id=fight_btn.custom_id,
-                message_id=message_id,
-                channel_id=channel_id,
-                author_id=author_id,
-                guild_id=guild_id,
-                flags=data.get("flags", 0),
-            )
+            success = await self.bot.interactions.click_button_raw(custom_id=fight_btn.custom_id, message_id=message_id, channel_id=channel_id, author_id=author_id, guild_id=guild_id, flags=data.get("flags", 0))
             if not success:
                 self.bot.log("ERROR", f"JOIN FAILED message={message_id} guild={guild_id} battle={tracking_id}")
                 return
-
             self.joined_ids.add(tracking_id)
             self._save_state()
             self.bot.log("SUCCESS", f"Joined Boss Battle! guild={guild_id} battle={tracking_id}; syncing tickets")
