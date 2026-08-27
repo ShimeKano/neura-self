@@ -32,8 +32,6 @@ class Boss(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        # State is rebound to the authenticated account in register_actions().
-        # This prevents multiple accounts in one process from sharing Boss tickets.
         self.state_file = None
         self._load_state()
         self.enabled = self.bot.config.get("boss", {}).get("enabled", True)
@@ -44,6 +42,9 @@ class Boss(commands.Cog):
         self.processing_ids = set()
         self.ticket_check_lock = asyncio.Lock()
         self.ticket_check_event = asyncio.Event()
+        self.ticket_check_waiting = False
+        self.ticket_check_started_at = 0.0
+        self._reset_task = None
         self._update_playing_guilds()
 
     @staticmethod
@@ -61,7 +62,6 @@ class Boss(commands.Cog):
 
     @classmethod
     def _ticket_cycle(cls, when=None):
-        """Return the calendar date of the current 14:00 Asia/Ho_Chi_Minh cycle."""
         local_now = when.astimezone(cls.RESET_TZ) if when else datetime.now(cls.RESET_TZ)
         reset_today = datetime.combine(
             local_now.date(),
@@ -73,14 +73,18 @@ class Boss(commands.Cog):
         return local_now.date().isoformat()
 
     @classmethod
-    def _next_reset_text(cls):
+    def _next_reset(cls):
         now = datetime.now(cls.RESET_TZ)
         reset_today = datetime.combine(
             now.date(), dt_time(cls.RESET_HOUR, cls.RESET_MINUTE), tzinfo=cls.RESET_TZ
         )
         if now >= reset_today:
             reset_today += timedelta(days=1)
-        return reset_today.strftime("%Y-%m-%d %H:%M %Z")
+        return reset_today
+
+    @classmethod
+    def _next_reset_text(cls):
+        return cls._next_reset().strftime("%Y-%m-%d %H:%M %Z")
 
     def _update_playing_guilds(self):
         self.playing_guild_ids.clear()
@@ -91,8 +95,7 @@ class Boss(commands.Cog):
                 ch = None
             if ch and ch.guild:
                 self.playing_guild_ids.add(str(ch.guild.id))
-
-        if hasattr(self.bot, "guild_id") and self.bot.guild_id:
+        if getattr(self.bot, "guild_id", None):
             self.playing_guild_ids.add(str(self.bot.guild_id))
 
     async def register_actions(self):
@@ -103,8 +106,6 @@ class Boss(commands.Cog):
         self.ignore_guilds = self._normalize_ids(cfg.get("ignore_guilds", []))
         self._update_playing_guilds()
 
-        # Each NeuraBot instance gets an isolated Boss state file based on the
-        # authenticated Discord user ID. This is essential for multi-account mode.
         account_id = str(getattr(self.bot, "user_id", "") or "").strip()
         if account_id:
             new_state_file = os.path.join("data", "boss", f"{account_id}.json")
@@ -118,9 +119,42 @@ class Boss(commands.Cog):
             f"ignored={len(self.ignore_guilds)}, chance={self.join_chance}%"
         )
 
-        # Always synchronize the real ticket count before Boss hunting starts.
-        if self.enabled and getattr(self.bot, "is_ready", False):
+        if self.enabled:
+            # register_actions runs before NeuraBot flips is_ready. Wait for the
+            # actual ready state so the startup ticket check cannot be skipped.
+            if self._reset_task and not self._reset_task.done():
+                self._reset_task.cancel()
+            self._reset_task = asyncio.create_task(self._startup_and_reset_loop())
+
+    async def _startup_and_reset_loop(self):
+        try:
+            await self.bot.wait_until_ready()
+            if not self.enabled:
+                return
+            self._check_reset()
             await self._request_ticket_check("startup")
+
+            while self.enabled and self.bot.active:
+                now = datetime.now(self.RESET_TZ)
+                reset_at = self._next_reset()
+                delay = max(1.0, (reset_at - now).total_seconds())
+                await asyncio.sleep(delay)
+                if not self.enabled or not self.bot.active:
+                    break
+                if self._check_reset():
+                    await self._request_ticket_check("daily-reset")
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            self.bot.log("ERROR", f"Boss reset loop failed: {exc}")
+
+    async def on_daily_trigger(self):
+        """Called by Neura's Daily cog as an additional reset/check hook."""
+        if not self.enabled:
+            return
+        changed = self._check_reset()
+        if changed:
+            await self._request_ticket_check("daily-trigger")
 
     def _load_state(self):
         self.tickets = 3
@@ -132,12 +166,12 @@ class Boss(commands.Cog):
         try:
             with open(self.state_file, "r") as f:
                 data = json.load(f)
-                self.tickets = int(data.get("tickets", 3))
-                self.last_reset = data.get("last_reset", 0)
-                self.reset_cycle = data.get("reset_cycle")
-                self.joined_ids = set(str(x) for x in data.get("joined_ids", []))
-        except Exception as e:
-            self.bot.log("ERROR", f"Boss state load failed: {e}")
+            self.tickets = max(0, min(3, int(data.get("tickets", 3))))
+            self.last_reset = data.get("last_reset", 0)
+            self.reset_cycle = data.get("reset_cycle")
+            self.joined_ids = set(str(x) for x in data.get("joined_ids", []))
+        except Exception as exc:
+            self.bot.log("ERROR", f"Boss state load failed: {exc}")
 
     def _save_state(self):
         if not self.state_file:
@@ -149,56 +183,40 @@ class Boss(commands.Cog):
                     "tickets": self.tickets,
                     "last_reset": self.last_reset,
                     "reset_cycle": self.reset_cycle,
-                    "joined_ids": list(self.joined_ids)
+                    "joined_ids": list(self.joined_ids),
                 }, f)
-        except Exception as e:
-            self.bot.log("ERROR", f"Boss state save failed: {e}")
+        except Exception as exc:
+            self.bot.log("ERROR", f"Boss state save failed: {exc}")
 
     def _check_reset(self):
-        """Detect the fixed daily 14:00 Vietnam-time ticket boundary.
-
-        This deliberately does not invent a new ticket count. The next step
-        performs `oboss t` so OwO remains the authoritative source of truth.
-        """
         cycle = self._ticket_cycle()
         if self.reset_cycle == cycle:
             return False
-
         old_cycle = self.reset_cycle
         self.reset_cycle = cycle
         self.last_reset = time.time()
         self.joined_ids.clear()
-        # Force an authoritative check after crossing 14:00 instead of assuming 3/3.
         self.tickets = 0
         self._save_state()
         self.bot.log(
             "BOSS",
             f"Daily Boss ticket cycle changed {old_cycle or 'none'} -> {cycle} at "
-            f"14:00 Asia/Ho_Chi_Minh; forcing `oboss t` check. Next reset: {self._next_reset_text()}"
+            f"14:00 Asia/Ho_Chi_Minh; forcing `boss t` check. Next reset: {self._next_reset_text()}"
         )
         return True
 
     def _is_target_guild(self, guild_id):
-        """Apply blacklist-first, explicit-target-only guild routing."""
         guild_id = str(guild_id or "").strip()
-        if not guild_id:
-            return False
-        if guild_id in self.ignore_guilds:
+        if not guild_id or guild_id in self.ignore_guilds:
             return False
         return guild_id in self.target_guilds
 
     @staticmethod
     def _find_fight_button(components):
-        """Find the Boss fight button without depending on one exact Discord custom_id."""
-        buttons = [
-            c for c in components
-            if c.name == "button" and c.custom_id and not c.disabled
-        ]
-
+        buttons = [c for c in components if c.name == "button" and c.custom_id and not c.disabled]
         exact = next((c for c in buttons if c.custom_id == "guildboss_fight"), None)
         if exact:
             return exact
-
         for component in buttons:
             custom_id = str(component.custom_id).lower()
             label = str(component.label or "").lower()
@@ -206,12 +224,10 @@ class Boss(commands.Cog):
                 return component
             if "boss" in custom_id and "fight" in label:
                 return component
-
         return None
 
     @staticmethod
     def _parse_ticket_count(text):
-        """Parse the real X/3 Boss ticket count from an oboss t response."""
         text = str(text or "").lower()
         patterns = [
             r"(\d+)\s*/\s*3\s+boss\s+tickets?",
@@ -228,26 +244,31 @@ class Boss(commands.Cog):
         return None
 
     async def _request_ticket_check(self, reason="manual", timeout=12):
-        """Ask THIS account to run `oboss t` and wait for THIS account's response."""
-        if not self.enabled or not getattr(self.bot, "is_ready", False):
+        if not self.enabled:
             return None
+        await self.bot.wait_until_ready()
 
         async with self.ticket_check_lock:
             self.ticket_check_event.clear()
-            self.bot.log("BOSS", f"TICKET CHECK ({reason}): sending `oboss t`")
-            sent = await self.bot.send_message("oboss t", priority=True)
-            if not sent:
-                self.bot.log("ERROR", f"TICKET CHECK ({reason}): failed to send `oboss t`")
-                return None
-
+            self.ticket_check_waiting = True
+            self.ticket_check_started_at = time.time()
+            prefix = str(getattr(self.bot, "prefix", "") or "")
+            command = f"{prefix}boss t" if prefix else "boss t"
+            self.bot.log("BOSS", f"TICKET CHECK ({reason}): sending `{command}`")
             try:
-                await asyncio.wait_for(self.ticket_check_event.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                self.bot.log("ERROR", f"TICKET CHECK ({reason}): timed out waiting for OwO response")
-                return None
-
-            self.bot.log("BOSS", f"TICKET CHECK ({reason}): confirmed {self.tickets}/3")
-            return self.tickets
+                sent = await self.bot.send_message(command, priority=True)
+                if not sent:
+                    self.bot.log("ERROR", f"TICKET CHECK ({reason}): failed to send `{command}`")
+                    return None
+                try:
+                    await asyncio.wait_for(self.ticket_check_event.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    self.bot.log("ERROR", f"TICKET CHECK ({reason}): timed out waiting for OwO response")
+                    return None
+                self.bot.log("BOSS", f"TICKET CHECK ({reason}): confirmed {self.tickets}/3")
+                return self.tickets
+            finally:
+                self.ticket_check_waiting = False
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -255,31 +276,29 @@ class Boss(commands.Cog):
             return
         if message.channel.id != self.bot.channel_id:
             return
-
         if not self.bot.is_message_for_me(message):
             return
 
         full_content = self.bot.get_full_content(message)
         ticket_count = self._parse_ticket_count(full_content)
         if ticket_count is not None:
-            self.tickets = ticket_count
-            self.last_reset = time.time()
-            self._save_state()
-            self.ticket_check_event.set()
-            self.bot.log("BOSS", f"Synced tickets with OwO: {self.tickets}/3")
+            created_at = getattr(message, "created_at", None)
+            response_time = created_at.timestamp() if created_at else time.time()
+            if self.ticket_check_waiting and response_time + 0.5 >= self.ticket_check_started_at:
+                self.tickets = ticket_count
+                self.last_reset = time.time()
+                self._save_state()
+                self.ticket_check_event.set()
+                self.bot.log("BOSS", f"Synced tickets with OwO: {self.tickets}/3")
 
     @commands.Cog.listener()
     async def on_socket_raw_receive(self, msg):
-        if not self.enabled or self.bot.paused:
+        if not self.enabled or self.bot.paused or isinstance(msg, bytes):
             return
-        if isinstance(msg, bytes):
-            return
-
         try:
             raw_data = json.loads(msg)
         except Exception:
             return
-
         if raw_data.get("t") != "MESSAGE_CREATE":
             return
 
@@ -291,91 +310,57 @@ class Boss(commands.Cog):
         message_id = str(data.get("id") or "")
         channel_id_raw = data.get("channel_id")
         guild_id = str(data.get("guild_id") or "").strip()
-        if not message_id:
-            self.bot.log("BOSS", "SKIP message: MESSAGE_CREATE has no message id")
+        if not message_id or not channel_id_raw:
             return
-        if not channel_id_raw:
-            self.bot.log("BOSS", f"SKIP message={message_id}: missing channel_id")
-            return
-
         try:
             channel_id = int(channel_id_raw)
         except (TypeError, ValueError):
-            self.bot.log("BOSS", f"SKIP message={message_id}: invalid channel_id={channel_id_raw!r}")
             return
 
         components = parse_v2_message(data)
         content = (data.get("content") or "").lower()
-        v2_text = " ".join(
-            c.content for c in components if c.name == "text_display" and c.content
-        ).lower()
-        labels = " ".join(
-            str(c.label) for c in components if c.name == "button" and c.label
-        ).lower()
+        v2_text = " ".join(c.content for c in components if c.name == "text_display" and c.content).lower()
+        labels = " ".join(str(c.label) for c in components if c.name == "button" and c.label).lower()
         full_text = f"{content} {v2_text} {labels}"
         is_spawn = "runs away" in full_text or "guild boss" in full_text or "boss battle" in full_text
         fight_btn = self._find_fight_button(components)
-        fight_buttons = [
-            c for c in components
-            if c.name == "button" and c.custom_id
-        ]
 
         if is_spawn or fight_btn:
-            button_ids = [str(c.custom_id) for c in fight_buttons]
+            button_ids = [str(c.custom_id) for c in components if c.name == "button" and c.custom_id]
             self.bot.log(
                 "BOSS",
                 f"DETECT message={message_id} guild={guild_id or '-'} channel={channel_id} "
-                f"components={len(components)} buttons={button_ids} "
-                f"spawn={is_spawn} fight_button={'YES' if fight_btn else 'NO'}"
+                f"components={len(components)} buttons={button_ids} spawn={is_spawn} "
+                f"fight_button={'YES' if fight_btn else 'NO'}"
             )
 
-        if not components:
-            if is_spawn:
-                self.bot.log("BOSS", f"SKIP message={message_id}: Boss-like message has no parseable components")
+        if not components or (not is_spawn and not fight_btn):
             return
-
-        if not is_spawn and not fight_btn:
-            return
-
-        # Blacklist always wins, then explicit target matching is required.
         if guild_id in self.ignore_guilds:
             self.bot.log("BOSS", f"SKIP message={message_id}: guild {guild_id} is ignored")
             return
-
         if not self._is_target_guild(guild_id):
-            self.bot.log(
-                "BOSS",
-                f"SKIP message={message_id}: guild {guild_id or '-'} is not targeted "
-                f"(targets={','.join(self.target_guilds) or 'none'})"
-            )
+            self.bot.log("BOSS", f"SKIP message={message_id}: guild {guild_id or '-'} is not targeted")
             return
-
         if not fight_btn:
-            self.bot.log(
-                "BOSS",
-                f"SKIP message={message_id}: Boss detected in targeted guild but no usable fight button was found"
-            )
+            self.bot.log("BOSS", f"SKIP message={message_id}: no usable fight button")
             return
 
         battle_id = get_boss_battle_id(components)
         if battle_id and battle_id in self.joined_ids:
             self.bot.log("BOSS", f"SKIP message={message_id}: battle {battle_id} already processed")
             return
-
         tracking_id = str(battle_id or f"msg_{message_id}")
         if tracking_id in self.processing_ids:
-            self.bot.log("BOSS", f"SKIP message={message_id}: battle {tracking_id} is already being processed")
+            self.bot.log("BOSS", f"SKIP message={message_id}: battle {tracking_id} already processing")
             return
 
-        reset_changed = self._check_reset()
-        if reset_changed:
+        if self._check_reset():
             checked = await self._request_ticket_check("daily-reset")
             if checked is None or checked <= 0:
-                self.bot.log("BOSS", f"SKIP message={message_id}: no confirmed Boss tickets after daily reset")
+                self.bot.log("BOSS", f"SKIP message={message_id}: no tickets after daily reset")
                 return
 
-        # If the local state says zero, perform one authoritative check before
-        # deciding to stop. We never invent a ticket decrement locally.
         if self.tickets <= 0:
             checked = await self._request_ticket_check("before-join")
             if checked is None or checked <= 0:
@@ -383,10 +368,7 @@ class Boss(commands.Cog):
                 return
 
         if random.randint(1, 100) > self.join_chance:
-            self.bot.log(
-                "BOSS",
-                f"SKIP message={message_id}: join_chance={self.join_chance}% rejected this spawn"
-            )
+            self.bot.log("BOSS", f"SKIP message={message_id}: join_chance={self.join_chance}% rejected")
             self.joined_ids.add(tracking_id)
             self._save_state()
             return
@@ -398,10 +380,8 @@ class Boss(commands.Cog):
                 f"JOIN attempt message={message_id} guild={guild_id} channel={channel_id} "
                 f"battle={tracking_id} ticket={self.tickets}/3 custom_id={fight_btn.custom_id}"
             )
-
             delay = random.uniform(0.5, 1.5)
             await asyncio.sleep(delay)
-
             if self.bot.paused:
                 self.bot.log("BOSS", f"ABORT message={message_id}: bot paused during {delay:.2f}s delay")
                 return
@@ -412,32 +392,22 @@ class Boss(commands.Cog):
                 channel_id=channel_id,
                 author_id=author_id,
                 guild_id=guild_id,
-                flags=data.get("flags", 0)
+                flags=data.get("flags", 0),
             )
+            if not success:
+                self.bot.log("ERROR", f"JOIN FAILED message={message_id} guild={guild_id} battle={tracking_id}")
+                return
 
-            if success:
-                # The click itself is not treated as authoritative ticket state.
-                # Ask OwO again and only continue according to the returned count.
-                self.joined_ids.add(tracking_id)
-                self._save_state()
-                self.bot.log(
-                    "SUCCESS",
-                    f"Joined Boss Battle! guild={guild_id} battle={tracking_id}; syncing tickets with `oboss t`"
-                )
-
-                checked = await self._request_ticket_check("after-join")
-                if checked is None:
-                    self.bot.log("ERROR", "Boss joined but ticket check failed; stopping Boss loop until next spawn")
-                elif checked <= 0:
-                    self.bot.log("BOSS", "Boss tickets exhausted: 0/3. Waiting for reset.")
-                else:
-                    self.bot.log("BOSS", f"Boss tickets remaining: {checked}/3. Ready for next Boss.")
+            self.joined_ids.add(tracking_id)
+            self._save_state()
+            self.bot.log("SUCCESS", f"Joined Boss Battle! guild={guild_id} battle={tracking_id}; syncing tickets")
+            checked = await self._request_ticket_check("after-join")
+            if checked is None:
+                self.bot.log("ERROR", "Boss joined but ticket check failed; waiting for next Boss")
+            elif checked <= 0:
+                self.bot.log("BOSS", "Boss tickets exhausted: 0/3. Waiting for reset.")
             else:
-                self.bot.log(
-                    "ERROR",
-                    f"JOIN FAILED message={message_id} guild={guild_id} battle={tracking_id} "
-                    f"custom_id={fight_btn.custom_id}"
-                )
+                self.bot.log("BOSS", f"Boss tickets remaining: {checked}/3. Ready for next Boss.")
         finally:
             self.processing_ids.discard(tracking_id)
 
