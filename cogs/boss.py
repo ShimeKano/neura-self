@@ -16,6 +16,8 @@ from discord.ext import commands
 import asyncio
 import time
 import random
+from datetime import datetime, time as dt_time, timedelta
+from zoneinfo import ZoneInfo
 
 from component_v2_neura import parse_v2_message, get_boss_battle_id
 import json
@@ -24,6 +26,10 @@ import re
 
 
 class Boss(commands.Cog):
+    RESET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+    RESET_HOUR = 14
+    RESET_MINUTE = 0
+
     def __init__(self, bot):
         self.bot = bot
         # State is rebound to the authenticated account in register_actions().
@@ -52,6 +58,29 @@ class Boss(commands.Cog):
             if value and value not in result:
                 result.append(value)
         return result
+
+    @classmethod
+    def _ticket_cycle(cls, when=None):
+        """Return the calendar date of the current 14:00 Asia/Ho_Chi_Minh cycle."""
+        local_now = when.astimezone(cls.RESET_TZ) if when else datetime.now(cls.RESET_TZ)
+        reset_today = datetime.combine(
+            local_now.date(),
+            dt_time(cls.RESET_HOUR, cls.RESET_MINUTE),
+            tzinfo=cls.RESET_TZ,
+        )
+        if local_now < reset_today:
+            return (local_now - timedelta(days=1)).date().isoformat()
+        return local_now.date().isoformat()
+
+    @classmethod
+    def _next_reset_text(cls):
+        now = datetime.now(cls.RESET_TZ)
+        reset_today = datetime.combine(
+            now.date(), dt_time(cls.RESET_HOUR, cls.RESET_MINUTE), tzinfo=cls.RESET_TZ
+        )
+        if now >= reset_today:
+            reset_today += timedelta(days=1)
+        return reset_today.strftime("%Y-%m-%d %H:%M %Z")
 
     def _update_playing_guilds(self):
         self.playing_guild_ids.clear()
@@ -96,6 +125,7 @@ class Boss(commands.Cog):
     def _load_state(self):
         self.tickets = 3
         self.last_reset = 0
+        self.reset_cycle = None
         self.joined_ids = set()
         if not self.state_file or not os.path.exists(self.state_file):
             return
@@ -104,6 +134,7 @@ class Boss(commands.Cog):
                 data = json.load(f)
                 self.tickets = int(data.get("tickets", 3))
                 self.last_reset = data.get("last_reset", 0)
+                self.reset_cycle = data.get("reset_cycle")
                 self.joined_ids = set(str(x) for x in data.get("joined_ids", []))
         except Exception as e:
             self.bot.log("ERROR", f"Boss state load failed: {e}")
@@ -117,18 +148,35 @@ class Boss(commands.Cog):
                 json.dump({
                     "tickets": self.tickets,
                     "last_reset": self.last_reset,
+                    "reset_cycle": self.reset_cycle,
                     "joined_ids": list(self.joined_ids)
                 }, f)
         except Exception as e:
             self.bot.log("ERROR", f"Boss state save failed: {e}")
 
     def _check_reset(self):
-        # The real ticket count comes from oboss t. This only clears stale
-        # local battle IDs after the normal ticket period has elapsed.
-        now = time.time()
-        if now - self.last_reset > 72000:
-            self.joined_ids.clear()
-            self._save_state()
+        """Detect the fixed daily 14:00 Vietnam-time ticket boundary.
+
+        This deliberately does not invent a new ticket count. The next step
+        performs `oboss t` so OwO remains the authoritative source of truth.
+        """
+        cycle = self._ticket_cycle()
+        if self.reset_cycle == cycle:
+            return False
+
+        old_cycle = self.reset_cycle
+        self.reset_cycle = cycle
+        self.last_reset = time.time()
+        self.joined_ids.clear()
+        # Force an authoritative check after crossing 14:00 instead of assuming 3/3.
+        self.tickets = 0
+        self._save_state()
+        self.bot.log(
+            "BOSS",
+            f"Daily Boss ticket cycle changed {old_cycle or 'none'} -> {cycle} at "
+            f"14:00 Asia/Ho_Chi_Minh; forcing `oboss t` check. Next reset: {self._next_reset_text()}"
+        )
+        return True
 
     def _is_target_guild(self, guild_id):
         """Apply blacklist-first, explicit-target-only guild routing."""
@@ -319,7 +367,13 @@ class Boss(commands.Cog):
             self.bot.log("BOSS", f"SKIP message={message_id}: battle {tracking_id} is already being processed")
             return
 
-        self._check_reset()
+        reset_changed = self._check_reset()
+        if reset_changed:
+            checked = await self._request_ticket_check("daily-reset")
+            if checked is None or checked <= 0:
+                self.bot.log("BOSS", f"SKIP message={message_id}: no confirmed Boss tickets after daily reset")
+                return
+
         # If the local state says zero, perform one authoritative check before
         # deciding to stop. We never invent a ticket decrement locally.
         if self.tickets <= 0:
